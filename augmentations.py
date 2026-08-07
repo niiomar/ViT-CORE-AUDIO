@@ -8,6 +8,7 @@ resulting spectrogram image, not on the raw waveform — this keeps the
 two views' augmentation independent even though the underlying
 transform (mel vs CQT) already gives them different starting points.
 """
+
 from __future__ import annotations
 
 import random
@@ -29,12 +30,12 @@ def _spec_augment(spec: np.ndarray, *, freq_mask_pct: float, time_mask_pct: floa
         f_width = int(h * freq_mask_pct * random.random())
         if f_width > 0:
             f0 = random.randint(0, max(1, h - f_width))
-            spec[f0:f0 + f_width, :, :] = 0
+            spec[f0 : f0 + f_width, :, :] = 0
 
         t_width = int(w * time_mask_pct * random.random())
         if t_width > 0:
             t0 = random.randint(0, max(1, w - t_width))
-            spec[:, t0:t0 + t_width, :] = 0
+            spec[:, t0 : t0 + t_width, :] = 0
 
     return spec
 

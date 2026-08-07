@@ -12,22 +12,24 @@ audio wrongly flagged as fake) equals False Negative Rate (fake audio
 wrongly passed as real). Lower is better; state-of-the-art ASVspoof
 2019 LA systems report EER in the 1-5% range.
 """
+
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 from sklearn.metrics import roc_auc_score, roc_curve
 
 
-def accuracy(y_true: np.ndarray, y_pred_labels: np.ndarray) -> float:
+def accuracy(y_true: npt.ArrayLike, y_pred_labels: npt.ArrayLike) -> float:
     return float(np.mean(np.asarray(y_true) == np.asarray(y_pred_labels)))
 
 
-def auc(y_true: np.ndarray, y_scores: np.ndarray) -> float:
+def auc(y_true: npt.ArrayLike, y_scores: npt.ArrayLike) -> float:
     """y_scores: probability/logit of the POSITIVE (spoof) class."""
     return float(roc_auc_score(y_true, y_scores))
 
 
-def eer(y_true: np.ndarray, y_scores: np.ndarray) -> tuple[float, float]:
+def eer(y_true: npt.ArrayLike, y_scores: npt.ArrayLike) -> tuple[float, float]:
     """
     Returns (eer, threshold) where eer is a fraction in [0, 1] (multiply
     by 100 for the conventional percentage reporting) and threshold is
@@ -55,7 +57,7 @@ def eer(y_true: np.ndarray, y_scores: np.ndarray) -> tuple[float, float]:
     return float(eer_value), float(eer_threshold)
 
 
-def compute_all(y_true: np.ndarray, y_scores: np.ndarray, y_pred_labels: np.ndarray) -> dict:
+def compute_all(y_true: npt.ArrayLike, y_scores: npt.ArrayLike, y_pred_labels: npt.ArrayLike) -> dict:
     eer_value, eer_threshold = eer(y_true, y_scores)
     return {
         "accuracy": accuracy(y_true, y_pred_labels),

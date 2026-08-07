@@ -11,6 +11,7 @@ where LABEL is "bonafide" or "spoof". Only FILENAME and LABEL are used
 here; the other columns are read but ignored, matching how most public
 baselines parse these files.
 """
+
 from __future__ import annotations
 
 import os
@@ -27,7 +28,15 @@ LABEL_MAP = {"bonafide": 0, "spoof": 1}  # 0 = real, 1 = fake — matches ViT-CO
 
 
 class AudioSpoofDataset(Dataset):
-    def __init__(self, protocol_path: str, audio_dir: str, *, train: bool = True, file_ext: str = ".flac"):
+    def __init__(
+        self,
+        protocol_path: str,
+        audio_dir: str,
+        *,
+        train: bool = True,
+        file_ext: str = ".flac",
+        cache_dir: str | None = None,
+    ):
         """
         protocol_path: path to the ASVspoof-style protocol .txt file
         audio_dir:     directory containing the audio files referenced by
@@ -38,13 +47,25 @@ class AudioSpoofDataset(Dataset):
         file_ext:      extension to append to FILENAME if the protocol
                         entries don't already include one (ASVspoof
                         protocols conventionally omit it)
+        cache_dir:     if set, the (pre-augmentation) mel/CQT views are
+                        cached to disk here on first computation and read
+                        back on every subsequent access — the CQT
+                        transform in particular is expensive enough that
+                        recomputing it every epoch is the dominant cost of
+                        training on a real dataset. Augmentations are
+                        still applied fresh (randomized) after the cached
+                        views are loaded, so caching doesn't affect
+                        augmentation diversity. None disables caching.
         """
         self.audio_dir = audio_dir
         self.train = train
         self.file_ext = file_ext
+        self.cache_dir = cache_dir
+        if self.cache_dir:
+            os.makedirs(self.cache_dir, exist_ok=True)
         self.entries: list[tuple[str, int]] = []
 
-        with open(protocol_path, "r") as f:
+        with open(protocol_path) as f:
             for line in f:
                 parts = line.strip().split()
                 if len(parts) < 5:
@@ -64,11 +85,36 @@ class AudioSpoofDataset(Dataset):
             return os.path.join(self.audio_dir, filename)
         return os.path.join(self.audio_dir, filename + self.file_ext)
 
+    def _cache_path(self, filename: str) -> str:
+        assert self.cache_dir is not None
+        safe_name = filename.replace(os.sep, "_").replace("/", "_")
+        return os.path.join(self.cache_dir, safe_name + ".npz")
+
+    def _load_views(self, path: str, filename: str) -> tuple[np.ndarray, np.ndarray]:
+        if not self.cache_dir:
+            return load_dual_views(path)
+
+        cache_path = self._cache_path(filename)
+        if os.path.exists(cache_path):
+            cached = np.load(cache_path)
+            return cached["mel"], cached["cqt"]
+
+        mel_view, cqt_view = load_dual_views(path)
+
+        # Write atomically (write-then-rename) so concurrent DataLoader
+        # workers racing to populate the cache on the first epoch never
+        # read a partially-written file.
+        tmp_path = f"{cache_path}.{os.getpid()}.tmp.npz"
+        np.savez(tmp_path, mel=mel_view, cqt=cqt_view)
+        os.replace(tmp_path, cache_path)
+
+        return mel_view, cqt_view
+
     def __getitem__(self, idx: int):
         filename, label = self.entries[idx]
         path = self._resolve_path(filename)
 
-        mel_view, cqt_view = load_dual_views(path)
+        mel_view, cqt_view = self._load_views(path, filename)
 
         if self.train:
             mel_view = RaAug(mel_view)

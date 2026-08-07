@@ -8,6 +8,7 @@ or care whether the two "views" it's reconciling came from image crops
 or spectrogram transforms, which is exactly why this file needed almost
 no changes from the original ViT-CORE implementation.
 """
+
 from __future__ import annotations
 
 import torch
@@ -15,10 +16,18 @@ import torch.nn as nn
 
 
 class ViTCoreAudioLoss(nn.Module):
-    def __init__(self, consistency_weight: float = 0.5):
+    def __init__(self, consistency_weight: float = 0.5, class_weights: torch.Tensor | None = None):
+        """
+        class_weights: optional per-class weight tensor (shape [num_classes])
+            for the classification loss, e.g. from train.py's
+            compute_class_weights(). ASVspoof-style protocols are
+            typically spoof-dominated, so leaving this unset on an
+            imbalanced training set biases the classifier toward the
+            majority class.
+        """
         super().__init__()
         self.consistency_weight = consistency_weight
-        self.classification_loss = nn.CrossEntropyLoss()
+        self.classification_loss = nn.CrossEntropyLoss(weight=class_weights)
         self.consistency_loss = nn.MSELoss()
 
     def forward(self, logits: torch.Tensor, f1_norm: torch.Tensor, f2_norm: torch.Tensor, labels: torch.Tensor):

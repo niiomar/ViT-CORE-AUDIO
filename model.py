@@ -12,16 +12,17 @@ No new architecture is introduced — reusing ViT-S/16 unmodified is the
 entire point of resizing both spectral views to 224x224x3 in
 audio_preprocessing.py.
 """
+
 from __future__ import annotations
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models import vit_small_patch16_224
+from timm.models import vit_small_patch16_224  # type: ignore[attr-defined]  # registered dynamically by timm
 
 
 class ViTCoreAudio(nn.Module):
-    def __init__(self, num_classes: int = 2, pretrained: bool = False):
+    def __init__(self, num_classes: int = 2, pretrained: bool = True):
         super().__init__()
         # Shared encoder — the SAME weights process both views, which is
         # what makes the consistency loss meaningful: if the two views

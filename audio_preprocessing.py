@@ -25,17 +25,17 @@ the exact same ViT-S/16 (patch16, 224 input) backbone used in ViT-CORE
 can be reused unmodified — no architecture changes, only a different
 front-end producing its input.
 """
+
 from __future__ import annotations
 
-import numpy as np
 import librosa
-import torch
+import numpy as np
 
-SAMPLE_RATE = 16000       # standard for speech anti-spoofing (ASVspoof protocol)
-DURATION_SECONDS = 4.0    # fixed-length clips; shorter clips are looped, longer are center-cropped
-N_MELS = 224               # chosen to match ViT's 224x224 input directly, no resize needed on the freq axis
+SAMPLE_RATE = 16000  # standard for speech anti-spoofing (ASVspoof protocol)
+DURATION_SECONDS = 4.0  # fixed-length clips; shorter clips are looped, longer are center-cropped
+N_MELS = 224  # chosen to match ViT's 224x224 input directly, no resize needed on the freq axis
 N_FFT = 1024
-HOP_LENGTH = 256           # gives ~224 time frames for a 4s clip at 16kHz
+HOP_LENGTH = 256  # gives ~224 time frames for a 4s clip at 16kHz
 
 # CQT config: must stay within the Nyquist frequency (sr/2 = 8000 Hz at
 # 16kHz). librosa's default fmin (~32.7 Hz, C1) spans log2(8000/32.7) =
@@ -47,7 +47,6 @@ HOP_LENGTH = 256           # gives ~224 time frames for a 4s clip at 16kHz
 # identical in shape despite having different native bin counts.
 CQT_BINS_PER_OCTAVE = 12
 CQT_N_BINS = 84
-
 
 
 def _load_and_fix_length(path: str, sr: int = SAMPLE_RATE, duration: float = DURATION_SECONDS) -> np.ndarray:
@@ -65,7 +64,7 @@ def _load_and_fix_length(path: str, sr: int = SAMPLE_RATE, duration: float = DUR
         wav = np.tile(wav, repeats)
 
     start = max(0, (len(wav) - target_len) // 2)
-    wav = wav[start:start + target_len]
+    wav = wav[start : start + target_len]
 
     if len(wav) < target_len:  # pad any residual shortfall (e.g. rounding)
         wav = np.pad(wav, (0, target_len - len(wav)))
@@ -94,16 +93,15 @@ def _resize_to_224(spec: np.ndarray) -> np.ndarray:
     cropping would.
     """
     from PIL import Image
+
     img = Image.fromarray(spec.astype(np.float32))
-    img = img.resize((224, 224), Image.BILINEAR)
+    img = img.resize((224, 224), Image.Resampling.BILINEAR)
     return np.array(img)
 
 
 def waveform_to_mel_view(wav: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
     """View 1: log-mel spectrogram, resized to exactly 224x224."""
-    mel = librosa.feature.melspectrogram(
-        y=wav, sr=sr, n_fft=N_FFT, hop_length=HOP_LENGTH, n_mels=N_MELS
-    )
+    mel = librosa.feature.melspectrogram(y=wav, sr=sr, n_fft=N_FFT, hop_length=HOP_LENGTH, n_mels=N_MELS)
     log_mel = librosa.power_to_db(mel, ref=np.max)
     log_mel = _resize_to_224(log_mel)
     return _to_uint8_image(log_mel)
@@ -112,8 +110,11 @@ def waveform_to_mel_view(wav: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
 def waveform_to_cqt_view(wav: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
     """View 2: Constant-Q Transform magnitude, resized to exactly 224x224."""
     cqt = librosa.cqt(
-        y=wav, sr=sr, hop_length=HOP_LENGTH,
-        n_bins=CQT_N_BINS, bins_per_octave=CQT_BINS_PER_OCTAVE,
+        y=wav,
+        sr=sr,
+        hop_length=HOP_LENGTH,
+        n_bins=CQT_N_BINS,
+        bins_per_octave=CQT_BINS_PER_OCTAVE,
     )
     log_cqt = librosa.amplitude_to_db(np.abs(cqt), ref=np.max)
     log_cqt = _resize_to_224(log_cqt)

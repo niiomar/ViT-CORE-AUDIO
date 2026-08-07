@@ -21,13 +21,19 @@ Mel-spectrograms are the conventional time-frequency representation most audio c
 vit-core-audio/
 ├── audio_preprocessing.py   # waveform -> (mel_view, cqt_view), both 224x224x3
 ├── augmentations.py          # RaAug (mel), DFDC_Selim (cqt) — independently randomized
-├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset
+├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, with optional disk caching
 ├── model.py                   # ViTCoreAudio — shared ViT-S/16 encoder, dual-view forward
-├── loss.py                     # classification CE + consistency MSE
+├── loss.py                     # classification CE (optionally class-weighted) + consistency MSE
 ├── metrics.py                   # accuracy, AUC, and EER (Equal Error Rate)
-├── train.py                      # training loop, checkpoints on best val EER
+├── train.py                      # training loop: AMP, warmup+cosine LR, resume, checkpoints on best val EER
 ├── evaluate.py                    # standalone eval against any protocol file (cross-dataset testing)
-└── requirements.txt
+├── tests/                          # pytest suite covering the invariants below
+├── .github/workflows/ci.yml         # lint + type-check + test on every push/PR
+├── .pre-commit-config.yaml           # same checks, run locally on git commit
+├── ruff.toml                          # lint/format rules
+├── mypy.ini                            # type-check config
+├── requirements.txt
+└── requirements-dev.txt                 # requirements.txt + ruff/mypy/pytest/pre-commit
 ```
 
 ## Why EER, not just accuracy
@@ -54,7 +60,9 @@ python train.py \
     --train_audio_dir path/to/train_audio/ \
     --val_protocol path/to/dev_protocol.txt \
     --val_audio_dir path/to/dev_audio/ \
-    --epochs 30 --batch_size 32
+    --epochs 30 --batch_size 32 \
+    --cache_dir cache/ \
+    --class_weighted_loss
 
 python evaluate.py \
     --checkpoint checkpoints/vitcore_audio_best.pth \
@@ -64,6 +72,30 @@ python evaluate.py \
 ```
 
 `evaluate.py` is intentionally separate from `train.py`'s validation loop specifically so a trained checkpoint can be scored against a **different** dataset than it was trained on — e.g. train on ASVspoof2019 LA, evaluate on In-the-Wild. A model that only reports a low EER on its own training distribution's held-out split is a much weaker claim than one that holds up cross-dataset, and this field expects that check.
+
+### Training options
+
+- `--cache_dir DIR` — cache each file's precomputed mel/CQT views to disk on first access (train/val kept in separate subdirectories). The CQT transform in particular is expensive enough that recomputing it from the raw waveform every epoch is the dominant training cost at real-dataset scale; caching turns that into a one-time cost. Augmentations still run fresh on top of the cached views each epoch, so this doesn't reduce augmentation diversity. Omit to disable.
+- `--pretrained` / `--no_pretrained` — the ViT-S/16 backbone initializes from ImageNet-pretrained weights by default (`--pretrained`), which reliably speeds convergence and helps in the low-data regime even though the input is spectrograms, not natural images. Use `--no_pretrained` to train from scratch instead.
+- `--warmup_epochs N` (default 2) — linear LR warmup before cosine annealing begins, to avoid destabilizing the pretrained backbone in the first few steps.
+- AMP (mixed precision) is on automatically whenever training on CUDA; pass `--no_amp` to disable it for debugging.
+- `--class_weighted_loss` — weights the classification cross-entropy inversely to class frequency in the training protocol. ASVspoof-style splits are typically spoof-dominated, so this is recommended unless you know your split is balanced.
+- `--resume path/to/vitcore_audio_last.pth` — resumes training (model, optimizer, scheduler, and AMP scaler state) from a checkpoint. Every epoch now saves `vitcore_audio_last.pth` in addition to `vitcore_audio_best.pth`, so a crashed run doesn't require starting over from epoch 0.
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+
+ruff check .            # lint
+ruff format --check .   # formatting (drop --check to auto-format)
+mypy .                  # type check
+pytest                  # tests
+```
+
+`pre-commit install` wires all four (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`; `.github/workflows/ci.yml` runs the same four on every push/PR to `main`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit.
+
+The suite in `tests/` codifies the invariants listed below as regression tests — e.g. the Nyquist-safe CQT config, unit-norm embeddings, non-no-op augmentations, gradient flow through the loss, and the `eer()` known-value checks — rather than relying only on the one-off manual verification runs described there.
 
 ## Verified, not just written
 
@@ -77,6 +109,7 @@ Every stage of this pipeline was run end-to-end against real synthetic audio bef
 - Loss computation and backward pass confirmed to produce gradients that actually flow
 - `eer()` verified against two known cases: 0% for perfectly separable scores, ~50% for random scores
 - A full 2-epoch training run against synthetic audio completed successfully, saved a real checkpoint, and that checkpoint was then successfully loaded and scored by the standalone `evaluate.py` script — closing the loop from raw waveform to trained model to exported per-file results.
+- The scaling/robustness upgrades (spectrogram caching, AMP, warmup+cosine LR, `--resume`, class-weighted loss) were verified together end-to-end: a synthetic-audio run with `--cache_dir`/`--class_weighted_loss` populated and reused the cache, `--resume` correctly picked up model/optimizer/scheduler/AMP-scaler state and continued past the interrupted epoch, and the resulting checkpoint loaded cleanly in `evaluate.py` under `weights_only=True`.
 
 ## Next steps
 
