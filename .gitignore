@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pth
+data/*
+!data/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+logs/*
+!logs/.gitkeep
+*.egg-info/
+.venv/
+venv/
+.DS_Store

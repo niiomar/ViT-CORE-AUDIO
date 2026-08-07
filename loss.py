@@ -1,0 +1,34 @@
+"""
+Loss = classification loss + lambda * consistency loss (L_cons).
+
+Identical formulation to ViT-CORE: cross-entropy on the fused logits,
+plus an MSE term forcing the two L2-normalized view embeddings toward
+each other. This is modality-agnostic — the loss function doesn't know
+or care whether the two "views" it's reconciling came from image crops
+or spectrogram transforms, which is exactly why this file needed almost
+no changes from the original ViT-CORE implementation.
+"""
+from __future__ import annotations
+
+import torch
+import torch.nn as nn
+
+
+class ViTCoreAudioLoss(nn.Module):
+    def __init__(self, consistency_weight: float = 0.5):
+        super().__init__()
+        self.consistency_weight = consistency_weight
+        self.classification_loss = nn.CrossEntropyLoss()
+        self.consistency_loss = nn.MSELoss()
+
+    def forward(self, logits: torch.Tensor, f1_norm: torch.Tensor, f2_norm: torch.Tensor, labels: torch.Tensor):
+        cls_loss = self.classification_loss(logits, labels)
+        cons_loss = self.consistency_loss(f1_norm, f2_norm)
+
+        total = cls_loss + self.consistency_weight * cons_loss
+
+        return {
+            "total": total,
+            "classification": cls_loss.detach(),
+            "consistency": cons_loss.detach(),
+        }
