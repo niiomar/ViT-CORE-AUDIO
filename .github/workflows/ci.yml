@@ -32,3 +32,6 @@ jobs:
 
       - name: Test (pytest)
         run: pytest -q
+
+      - name: Dependency vulnerability scan (pip-audit)
+        run: pip-audit

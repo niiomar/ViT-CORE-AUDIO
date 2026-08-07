@@ -127,9 +127,10 @@ ruff check .            # lint
 ruff format --check .   # formatting (drop --check to auto-format)
 mypy .                  # type check
 pytest                  # tests
+pip-audit               # dependency vulnerability scan
 ```
 
-`pre-commit install` wires all four (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`; [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same four on every push/PR to `main`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit.
+`pre-commit install` wires `ruff check`, `ruff format`, and `mypy` (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit. `pytest` and `pip-audit` aren't pre-commit hooks (slower / better suited to CI than every commit) — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all five checks, including those two, on every push/PR to `main`. [Dependabot](.github/dependabot.yml) complements `pip-audit` by opening PRs for outdated `pip` and GitHub Actions dependencies on a weekly schedule.
 
 The suite in `tests/` codifies the invariants listed below as regression tests — e.g. the Nyquist-safe CQT config, unit-norm embeddings, non-no-op augmentations, gradient flow through the loss, and the `eer()` known-value checks — rather than relying only on the one-off manual verification runs described there.
 
