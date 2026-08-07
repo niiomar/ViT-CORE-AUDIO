@@ -1,6 +1,28 @@
 # ViT-CORE-Audio
 
+[![CI](https://github.com/niiomar/ViT-CORE-AUDIO/actions/workflows/ci.yml/badge.svg)](https://github.com/niiomar/ViT-CORE-AUDIO/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status: pre-training](https://img.shields.io/badge/status-pre--training-orange.svg)](#roadmap)
+
 Audio deepfake / voice-spoofing detection, built by porting ViT-CORE's dual-view consistency architecture from the visual domain to the audio domain. Same `ViT-S/16` backbone, same consistency-loss training philosophy — the two "views" are now two structurally different spectral transforms of the same waveform (mel-spectrogram and Constant-Q Transform) rather than two augmented image crops.
+
+> **Status:** architecture, training loop, and tooling are implemented and verified end-to-end against synthetic audio (see [Verified, Not Just Written](#verified-not-just-written)). No run against a real dataset has happened yet — see [Roadmap](#roadmap). No benchmark numbers are published here for that reason.
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Why EER, not just accuracy](#why-eer-not-just-accuracy)
+- [Installation](#installation)
+- [Data Format](#data-format)
+- [Quickstart](#quickstart)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Verified, Not Just Written](#verified-not-just-written)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Architecture
 
@@ -15,32 +37,27 @@ Identical four-step pipeline to ViT-CORE:
 
 Mel-spectrograms are the conventional time-frequency representation most audio classifiers train on. CQT uses logarithmically-spaced frequency bins matching musical/pitch intervals, and is historically more sensitive to the periodic vocoder artifacts that synthetic speech tends to leave behind. Using two genuinely different transforms — not two crops of one transform — is the audio-domain equivalent of ViT-CORE's two independent visual augmentation pipelines, and gives the consistency loss something real to reconcile.
 
-## Project structure
-
-```
-vit-core-audio/
-├── audio_preprocessing.py   # waveform -> (mel_view, cqt_view), both 224x224x3
-├── augmentations.py          # RaAug (mel), DFDC_Selim (cqt) — independently randomized
-├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, with optional disk caching
-├── model.py                   # ViTCoreAudio — shared ViT-S/16 encoder, dual-view forward
-├── loss.py                     # classification CE (optionally class-weighted) + consistency MSE
-├── metrics.py                   # accuracy, AUC, and EER (Equal Error Rate)
-├── train.py                      # training loop: AMP, warmup+cosine LR, resume, checkpoints on best val EER
-├── evaluate.py                    # standalone eval against any protocol file (cross-dataset testing)
-├── tests/                          # pytest suite covering the invariants below
-├── .github/workflows/ci.yml         # lint + type-check + test on every push/PR
-├── .pre-commit-config.yaml           # same checks, run locally on git commit
-├── ruff.toml                          # lint/format rules
-├── mypy.ini                            # type-check config
-├── requirements.txt
-└── requirements-dev.txt                 # requirements.txt + ruff/mypy/pytest/pre-commit
-```
-
 ## Why EER, not just accuracy
 
 Every ASVspoof challenge and essentially all published audio anti-spoofing work reports **Equal Error Rate** as the primary metric — the error rate at the threshold where false-accept and false-reject rates are equal. This has no real equivalent need in ViT-CORE's vision-domain `metrics.py`, so it's new here (`metrics.py::eer()`), verified directly against known cases: 0% for perfectly separable scores, ~50% for random scores. State-of-the-art ASVspoof 2019 LA systems report EER in the 1–5% range — that's the actual benchmark to compare against, not accuracy.
 
-## Data format
+## Installation
+
+Requires **Python 3.10+**.
+
+```bash
+git clone https://github.com/niiomar/ViT-CORE-AUDIO.git
+cd ViT-CORE-AUDIO
+
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+For development (linting, type-checking, tests — see [Development](#development)), install `requirements-dev.txt` instead.
+
+## Data Format
 
 Expects the standard ASVspoof-style protocol file (whitespace-separated, no header):
 
@@ -50,11 +67,9 @@ SPEAKER_ID  FILENAME  -  SYSTEM_ID  LABEL
 
 where `LABEL` is `bonafide` or `spoof`. This format is used by ASVspoof 2019/2021 LA and the In-the-Wild dataset, so `datasets.py` works against any of them without modification — only `--train_audio_dir`/`--val_audio_dir` and the file extension need to change.
 
-## Usage
+## Quickstart
 
 ```bash
-pip install -r requirements.txt
-
 python train.py \
     --train_protocol path/to/train_protocol.txt \
     --train_audio_dir path/to/train_audio/ \
@@ -82,6 +97,27 @@ python evaluate.py \
 - `--class_weighted_loss` — weights the classification cross-entropy inversely to class frequency in the training protocol. ASVspoof-style splits are typically spoof-dominated, so this is recommended unless you know your split is balanced.
 - `--resume path/to/vitcore_audio_last.pth` — resumes training (model, optimizer, scheduler, and AMP scaler state) from a checkpoint. Every epoch now saves `vitcore_audio_last.pth` in addition to `vitcore_audio_best.pth`, so a crashed run doesn't require starting over from epoch 0.
 
+## Project Structure
+
+```
+vit-core-audio/
+├── audio_preprocessing.py   # waveform -> (mel_view, cqt_view), both 224x224x3
+├── augmentations.py          # RaAug (mel), DFDC_Selim (cqt) — independently randomized
+├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, with optional disk caching
+├── model.py                   # ViTCoreAudio — shared ViT-S/16 encoder, dual-view forward
+├── loss.py                     # classification CE (optionally class-weighted) + consistency MSE
+├── metrics.py                   # accuracy, AUC, and EER (Equal Error Rate)
+├── train.py                      # training loop: AMP, warmup+cosine LR, resume, checkpoints on best val EER
+├── evaluate.py                    # standalone eval against any protocol file (cross-dataset testing)
+├── tests/                          # pytest suite covering the invariants below
+├── .github/workflows/ci.yml         # lint + type-check + test on every push/PR
+├── .pre-commit-config.yaml           # same checks, run locally on git commit
+├── ruff.toml                          # lint/format rules
+├── mypy.ini                            # type-check config
+├── requirements.txt
+└── requirements-dev.txt                 # requirements.txt + ruff/mypy/pytest/pre-commit
+```
+
 ## Development
 
 ```bash
@@ -93,11 +129,11 @@ mypy .                  # type check
 pytest                  # tests
 ```
 
-`pre-commit install` wires all four (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`; `.github/workflows/ci.yml` runs the same four on every push/PR to `main`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit.
+`pre-commit install` wires all four (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`; [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same four on every push/PR to `main`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit.
 
 The suite in `tests/` codifies the invariants listed below as regression tests — e.g. the Nyquist-safe CQT config, unit-norm embeddings, non-no-op augmentations, gradient flow through the loss, and the `eer()` known-value checks — rather than relying only on the one-off manual verification runs described there.
 
-## Verified, not just written
+## Verified, Not Just Written
 
 Every stage of this pipeline was run end-to-end against real synthetic audio before being considered done, not just syntax-checked:
 
@@ -111,6 +147,16 @@ Every stage of this pipeline was run end-to-end against real synthetic audio bef
 - A full 2-epoch training run against synthetic audio completed successfully, saved a real checkpoint, and that checkpoint was then successfully loaded and scored by the standalone `evaluate.py` script — closing the loop from raw waveform to trained model to exported per-file results.
 - The scaling/robustness upgrades (spectrogram caching, AMP, warmup+cosine LR, `--resume`, class-weighted loss) were verified together end-to-end: a synthetic-audio run with `--cache_dir`/`--class_weighted_loss` populated and reused the cache, `--resume` correctly picked up model/optimizer/scheduler/AMP-scaler state and continued past the interrupted epoch, and the resulting checkpoint loaded cleanly in `evaluate.py` under `weights_only=True`.
 
-## Next steps
+## Roadmap
 
-Train against a real dataset — ASVspoof 2019 LA is the standard starting point, with In-the-Wild as the recommended cross-dataset generalization check per the note above. Per the same principle followed throughout the ViT-CORE-FORENSICS and C2PA-Veritas projects, do not publish benchmark numbers in a model card until they come from a real held-out evaluation run, not a placeholder.
+- [ ] Train against a real dataset — ASVspoof 2019 LA is the standard starting point
+- [ ] Cross-dataset generalization check on In-the-Wild, per the note in [Quickstart](#quickstart)
+- [ ] Publish benchmark EER/AUC numbers **only** once they come from a real held-out evaluation run, not a placeholder — per the same principle followed throughout the ViT-CORE-FORENSICS and C2PA-Veritas projects
+
+## Contributing
+
+This is currently a solo research project; it's not yet accepting external contributions in any structured way, but issues and pull requests are welcome if something's broken or you have a concrete improvement.
+
+## License
+
+[MIT](LICENSE) © niiomar

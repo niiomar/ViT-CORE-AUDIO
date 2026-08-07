@@ -1,0 +1,13 @@
+# Normalize line endings to LF in the repository; Git converts to the
+# platform's native ending on checkout for text files. Keeps diffs clean
+# across contributors on Windows/macOS/Linux instead of flipping whole
+# files between CRLF/LF on first touch.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pth binary
+*.flac binary
+*.wav binary
+*.mp3 binary
