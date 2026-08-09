@@ -15,6 +15,8 @@ audio_preprocessing.py.
 
 from __future__ import annotations
 
+import copy
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -64,3 +66,58 @@ class ViTCoreAudio(nn.Module):
         isn't worth the latency. Trained jointly, usable independently."""
         f = self.encode(view)
         return self.classifier(f)
+
+
+def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
+    """Split parameters into decay/no-decay groups (no weight decay on biases or 1-D norm params) —
+    standard practice for transformer fine-tuning, ported from ViT-CORE's model_utils.py."""
+    decay, no_decay = [], []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if param.ndim <= 1 or name.endswith(".bias"):
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    return [
+        {"params": decay, "weight_decay": weight_decay},
+        {"params": no_decay, "weight_decay": 0.0},
+    ]
+
+
+class ModelEma:
+    """Exponential moving average of a model's floating-point parameters and buffers.
+
+    Ported from ViT-CORE's model_utils.py. Validation/checkpointing during
+    training prefers these shadow weights over the raw model — they're
+    typically less noisy than the last few SGD/AdamW steps and tend to
+    generalize slightly better, at the cost of one extra full-model copy
+    in memory.
+    """
+
+    def __init__(self, model: nn.Module, decay: float = 0.999):
+        self.module = copy.deepcopy(model)
+        self.module.eval()
+        for p in self.module.parameters():
+            p.requires_grad_(False)
+        self.decay = decay
+
+    def to(self, device: torch.device) -> ModelEma:
+        self.module.to(device)
+        return self
+
+    @torch.no_grad()
+    def update(self, model: nn.Module) -> None:
+        ema_sd = self.module.state_dict()
+        for k, v in model.state_dict().items():
+            ema_v = ema_sd[k]
+            if ema_v.dtype.is_floating_point:
+                ema_v.mul_(self.decay).add_(v.detach(), alpha=1 - self.decay)
+            else:
+                ema_v.copy_(v)
+
+    def state_dict(self) -> dict:
+        return self.module.state_dict()
+
+    def load_state_dict(self, state_dict: dict) -> None:
+        self.module.load_state_dict(state_dict)

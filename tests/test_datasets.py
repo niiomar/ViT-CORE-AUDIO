@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from datasets import LABEL_MAP, AudioSpoofDataset
 from tests.conftest import write_sine_wav
@@ -53,3 +54,36 @@ def test_cache_dir_populates_and_is_reused(tmp_path):
     item_second = ds[0]
     assert np.array_equal(item_first["view1"].numpy(), item_second["view1"].numpy())
     assert np.array_equal(item_first["view2"].numpy(), item_second["view2"].numpy())
+
+
+def test_getitem_skips_missing_file_and_returns_the_next_readable_entry(tmp_path):
+    """A single missing/corrupt audio file must not crash the whole run — the
+    dataset should fall through to the next entry, and critically must return
+    THAT entry's own filename/label, not the broken one's (else the sample
+    would be silently mislabeled)."""
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    # sample1.wav is referenced by the protocol but never written to disk.
+    write_sine_wav(str(audio_dir / "sample2.wav"), freq=440.0)
+
+    protocol_path = tmp_path / "protocol.txt"
+    protocol_path.write_text("SPK1 sample1 - SYS1 bonafide\nSPK2 sample2 - SYS2 spoof\n")
+
+    ds = AudioSpoofDataset(str(protocol_path), str(audio_dir), train=False, file_ext=".wav")
+
+    item = ds[0]
+    assert item["filename"] == "sample2"
+    assert item["label"].item() == LABEL_MAP["spoof"]
+
+
+def test_getitem_raises_after_exhausting_retries_when_every_entry_is_unreadable(tmp_path):
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+
+    protocol_path = tmp_path / "protocol.txt"
+    protocol_path.write_text("SPK1 sample1 - SYS1 bonafide\nSPK2 sample2 - SYS2 spoof\n")
+
+    ds = AudioSpoofDataset(str(protocol_path), str(audio_dir), train=False, file_ext=".wav")
+
+    with pytest.raises(OSError):
+        ds[0]

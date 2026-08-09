@@ -52,3 +52,21 @@ def test_class_weights_change_the_classification_loss():
     loss_weighted = weighted(logits, f1_norm, f2_norm, labels)["classification"]
 
     assert not torch.allclose(loss_unweighted, loss_weighted)
+
+
+def test_label_smoothing_changes_the_classification_loss():
+    model = ViTCoreAudio(num_classes=2, pretrained=False)
+    view1 = torch.randn(4, 3, 224, 224)
+    view2 = torch.randn(4, 3, 224, 224)
+    labels = torch.tensor([0, 0, 1, 1])
+
+    with torch.no_grad():
+        logits, f1_norm, f2_norm = model(view1, view2)
+
+    unsmoothed = ViTCoreAudioLoss(consistency_weight=0.5, label_smoothing=0.0)
+    smoothed = ViTCoreAudioLoss(consistency_weight=0.5, label_smoothing=0.1)
+
+    loss_unsmoothed = unsmoothed(logits, f1_norm, f2_norm, labels)["classification"]
+    loss_smoothed = smoothed(logits, f1_norm, f2_norm, labels)["classification"]
+
+    assert not torch.allclose(loss_unsmoothed, loss_smoothed)

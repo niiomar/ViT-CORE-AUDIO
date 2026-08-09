@@ -14,6 +14,7 @@ baselines parse these files.
 
 from __future__ import annotations
 
+import logging
 import os
 
 import numpy as np
@@ -24,7 +25,10 @@ from torchvision import transforms
 from audio_preprocessing import load_dual_views
 from augmentations import DFDC_Selim, RaAug
 
+logger = logging.getLogger(__name__)
+
 LABEL_MAP = {"bonafide": 0, "spoof": 1}  # 0 = real, 1 = fake — matches ViT-CORE's convention
+MAX_LOAD_RETRIES = 5
 
 
 class AudioSpoofDataset(Dataset):
@@ -110,11 +114,30 @@ class AudioSpoofDataset(Dataset):
 
         return mel_view, cqt_view
 
-    def __getitem__(self, idx: int):
-        filename, label = self.entries[idx]
-        path = self._resolve_path(filename)
+    def _safe_load_views(self, idx: int) -> tuple[np.ndarray, np.ndarray, str, int]:
+        """Load dual views for entry `idx`, retrying at subsequent entries if the
+        audio file is missing/corrupt/unreadable — a single bad file in a
+        multi-thousand-file real dataset shouldn't kill an entire training run.
+        Returns the (filename, label) actually loaded, which is NOT necessarily
+        entries[idx] once a retry has happened — the caller must use these
+        rather than re-reading entries[idx], or it'd mislabel the fallback
+        sample with the broken entry's label."""
+        next_idx = idx
+        for _ in range(MAX_LOAD_RETRIES):
+            filename, label = self.entries[next_idx]
+            path = self._resolve_path(filename)
+            try:
+                mel_view, cqt_view = self._load_views(path, filename)
+                return mel_view, cqt_view, filename, label
+            except Exception as exc:
+                logger.warning(f"Skipping unreadable audio file: {path} ({exc})")
+                next_idx = (next_idx + 1) % len(self.entries)
+        raise OSError(
+            f"Could not find a readable audio file after {MAX_LOAD_RETRIES} attempts starting from index {idx}"
+        )
 
-        mel_view, cqt_view = self._load_views(path, filename)
+    def __getitem__(self, idx: int):
+        mel_view, cqt_view, filename, label = self._safe_load_views(idx)
 
         if self.train:
             mel_view = RaAug(mel_view)

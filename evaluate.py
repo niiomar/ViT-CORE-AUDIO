@@ -24,6 +24,7 @@ from torch.utils.data import DataLoader
 from datasets import AudioSpoofDataset
 from metrics import compute_all
 from model import ViTCoreAudio
+from utils import validate_paths
 
 
 @torch.inference_mode()
@@ -65,6 +66,8 @@ def main():
     parser.add_argument("--output_json", default=None, help="optional path to dump per-file scores + summary metrics")
     args = parser.parse_args()
 
+    validate_paths({"checkpoint": args.checkpoint, "protocol": args.protocol, "audio_dir": args.audio_dir})
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # pretrained=False: the backbone's initial weights don't matter here,
@@ -75,9 +78,14 @@ def main():
     # (state dicts + scalars), so there's no need to unpickle arbitrary
     # objects — safer default against loading a malicious/corrupt checkpoint.
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=True)
-    model.load_state_dict(ckpt["model"])
+    # Prefer EMA weights when the checkpoint has them (train.py's default) —
+    # they're typically less noisy than the raw model's last few optimizer
+    # steps and tend to generalize slightly better.
+    state = ckpt.get("ema", ckpt["model"])
+    model.load_state_dict(state)
     print(
-        f"Loaded checkpoint from epoch {ckpt.get('epoch', '?')}, "
+        f"Loaded checkpoint from epoch {ckpt.get('epoch', '?')} "
+        f"({'EMA' if 'ema' in ckpt else 'raw'} weights), "
         f"training-time val EER {ckpt.get('val_eer', float('nan')) * 100:.2f}%"
     )
 

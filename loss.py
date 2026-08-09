@@ -16,7 +16,12 @@ import torch.nn as nn
 
 
 class ViTCoreAudioLoss(nn.Module):
-    def __init__(self, consistency_weight: float = 0.5, class_weights: torch.Tensor | None = None):
+    def __init__(
+        self,
+        consistency_weight: float = 0.5,
+        class_weights: torch.Tensor | None = None,
+        label_smoothing: float = 0.0,
+    ):
         """
         class_weights: optional per-class weight tensor (shape [num_classes])
             for the classification loss, e.g. from train.py's
@@ -24,10 +29,12 @@ class ViTCoreAudioLoss(nn.Module):
             typically spoof-dominated, so leaving this unset on an
             imbalanced training set biases the classifier toward the
             majority class.
+        label_smoothing: standard regularizer against classifier
+            overconfidence, ported from ViT-CORE's training loop.
         """
         super().__init__()
         self.consistency_weight = consistency_weight
-        self.classification_loss = nn.CrossEntropyLoss(weight=class_weights)
+        self.classification_loss = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)
         self.consistency_loss = nn.MSELoss()
 
     def forward(self, logits: torch.Tensor, f1_norm: torch.Tensor, f2_norm: torch.Tensor, labels: torch.Tensor):

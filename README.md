@@ -75,9 +75,9 @@ python train.py \
     --train_audio_dir path/to/train_audio/ \
     --val_protocol path/to/dev_protocol.txt \
     --val_audio_dir path/to/dev_audio/ \
+    --checkpoint_dir checkpoints/ \
     --epochs 30 --batch_size 32 \
-    --cache_dir cache/ \
-    --class_weighted_loss
+    --cache_dir cache/
 
 python evaluate.py \
     --checkpoint checkpoints/vitcore_audio_best.pth \
@@ -86,16 +86,50 @@ python evaluate.py \
     --output_json results.json
 ```
 
-`evaluate.py` is intentionally separate from `train.py`'s validation loop specifically so a trained checkpoint can be scored against a **different** dataset than it was trained on — e.g. train on ASVspoof2019 LA, evaluate on In-the-Wild. A model that only reports a low EER on its own training distribution's held-out split is a much weaker claim than one that holds up cross-dataset, and this field expects that check.
+Bad paths are checked up front (`--train_protocol`, `--train_audio_dir`, etc.), so a typo fails immediately instead of after the first batch — or, worse, after the first several minutes of spectrogram caching.
+
+`evaluate.py` is intentionally separate from `train.py`'s validation loop specifically so a trained checkpoint can be scored against a **different** dataset than it was trained on — e.g. train on ASVspoof2019 LA, evaluate on In-the-Wild. A model that only reports a low EER on its own training distribution's held-out split is a much weaker claim than one that holds up cross-dataset, and this field expects that check. It prefers a checkpoint's EMA weights when present (see below), falling back to the raw model.
 
 ### Training options
 
+Ported from [ViT-CORE](https://github.com/niiomar/ViT-CORE)'s training pipeline — same mechanics, adapted only where the domain differs (EER instead of AUC as the model-selection/early-stopping metric, and auto-resume against `--checkpoint_dir` instead of a fixed `--output-dir` layout).
+
+**Data pipeline**
+
 - `--cache_dir DIR` — cache each file's precomputed mel/CQT views to disk on first access (train/val kept in separate subdirectories). The CQT transform in particular is expensive enough that recomputing it from the raw waveform every epoch is the dominant training cost at real-dataset scale; caching turns that into a one-time cost. Augmentations still run fresh on top of the cached views each epoch, so this doesn't reduce augmentation diversity. Omit to disable.
-- `--pretrained` / `--no_pretrained` — the ViT-S/16 backbone initializes from ImageNet-pretrained weights by default (`--pretrained`), which reliably speeds convergence and helps in the low-data regime even though the input is spectrograms, not natural images. Use `--no_pretrained` to train from scratch instead.
-- `--warmup_epochs N` (default 2) — linear LR warmup before cosine annealing begins, to avoid destabilizing the pretrained backbone in the first few steps.
+- A missing or corrupt audio file no longer crashes the run — `datasets.py` logs a warning and retries at the next entry (up to 5 attempts), returning that entry's own filename/label rather than mislabeling the fallback sample.
+- `--balanced_sampling` / `--no_balanced_sampling` (default **on**) — samples training batches via `WeightedRandomSampler` so each batch is class-balanced by construction, rather than sampling in the dataset's natural (typically spoof-dominated) proportions. Don't combine with `--class_weighted_loss` below — pick one, not both, or you'll double-correct for imbalance.
+- `--class_weighted_loss` (default **off**) — the loss-reweighting alternative to balanced sampling: weights the classification cross-entropy inversely to class frequency instead of resampling. Kept as an option since it changes calibration differently than resampling does.
+
+**Model / optimization**
+
+- `--pretrained` / `--no_pretrained` — the ViT-S/16 backbone initializes from ImageNet-pretrained weights by default, which reliably speeds convergence and helps in the low-data regime even though the input is spectrograms, not natural images.
+- `--weight_decay` (default `0.05`) — AdamW weight decay, applied only to 2-D+ weight matrices; biases and 1-D norm parameters get `0.0` (standard practice for transformer fine-tuning — decaying those tends to hurt).
+- `--label_smoothing` (default `0.1`) — standard regularizer against classifier overconfidence.
+- `--grad_clip_norm` (default `1.0`) — clips the gradient norm after unscaling (AMP-safe) before the optimizer step.
+- `--warmup_epochs` (default `2`) / `--min_lr` (default `1e-6`) — linear LR warmup into cosine annealing, decaying to this floor rather than to zero.
+- `--consistency_weight` (default `0.5`) — weight on the dual-view consistency term in the total loss.
 - AMP (mixed precision) is on automatically whenever training on CUDA; pass `--no_amp` to disable it for debugging.
-- `--class_weighted_loss` — weights the classification cross-entropy inversely to class frequency in the training protocol. ASVspoof-style splits are typically spoof-dominated, so this is recommended unless you know your split is balanced.
-- `--resume path/to/vitcore_audio_last.pth` — resumes training (model, optimizer, scheduler, and AMP scaler state) from a checkpoint. Every epoch now saves `vitcore_audio_last.pth` in addition to `vitcore_audio_best.pth`, so a crashed run doesn't require starting over from epoch 0.
+
+**EMA, early stopping, reproducibility**
+
+- `--ema` / `--no_ema` (default **on**) — tracks an exponential moving average of the model's weights (`--ema_decay`, default `0.999`); validation and checkpointing use these shadow weights rather than the raw model, since EMA weights are typically less noisy than the last few optimizer steps and tend to generalize slightly better.
+- `--early_stopping_patience` (default `10`) — stop after this many epochs with no val-EER improvement (`0` disables).
+- `--seed` (default `42`) — seeds `torch`/`numpy`/`random` plus CUDA and DataLoader workers, for reproducible runs.
+
+**Checkpointing**
+
+Every epoch writes `vitcore_audio_latest.pth` (full resumable state: model, optimizer, scheduler, AMP scaler, and EMA weights) to `--checkpoint_dir`; a val-EER improvement additionally writes `vitcore_audio_best.pth`. On process exit — including a normal finish or `Ctrl-C` — an `atexit` hook writes `vitcore_audio_exit.pth` capturing whatever the last-known state was, so an interrupted run is never a total loss.
+
+Re-running the exact same command **auto-resumes** from `vitcore_audio_latest.pth` in `--checkpoint_dir` if it exists — no flag needed. Pass `--resume path/to/checkpoint.pth` to resume from a specific checkpoint instead (e.g. the `_exit` one, or a different experiment's).
+
+### Watching training live
+
+Training metrics (losses, accuracy, AUC, EER, LR) are logged to TensorBoard under `<checkpoint_dir>/tensorboard/`, and to a plain CSV at `<checkpoint_dir>/vitcore_audio_losses.csv` for quick diffing between runs without needing TensorBoard open:
+
+```bash
+tensorboard --logdir checkpoints/tensorboard
+```
 
 ## Project Structure
 
@@ -103,11 +137,12 @@ python evaluate.py \
 vit-core-audio/
 ├── audio_preprocessing.py   # waveform -> (mel_view, cqt_view), both 224x224x3
 ├── augmentations.py          # RaAug (mel), DFDC_Selim (cqt) — independently randomized
-├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, with optional disk caching
-├── model.py                   # ViTCoreAudio — shared ViT-S/16 encoder, dual-view forward
-├── loss.py                     # classification CE (optionally class-weighted) + consistency MSE
+├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, disk caching, corrupt-file retry
+├── model.py                   # ViTCoreAudio, ModelEma, build_param_groups — shared ViT-S/16 encoder, dual-view forward
+├── loss.py                     # classification CE (class-weighted, label-smoothed) + consistency MSE
 ├── metrics.py                   # accuracy, AUC, and EER (Equal Error Rate)
-├── train.py                      # training loop: AMP, warmup+cosine LR, resume, checkpoints on best val EER
+├── utils.py                      # set_seed, seed_worker, validate_paths — shared by train.py/evaluate.py
+├── train.py                       # training loop: AMP, EMA, warmup+cosine LR, early stopping, TensorBoard/CSV logging
 ├── evaluate.py                    # standalone eval against any protocol file (cross-dataset testing)
 ├── tests/                          # pytest suite covering the invariants below
 ├── .github/workflows/ci.yml         # lint + type-check + test on every push/PR
@@ -147,6 +182,7 @@ Every stage of this pipeline was run end-to-end against real synthetic audio bef
 - `eer()` verified against two known cases: 0% for perfectly separable scores, ~50% for random scores
 - A full 2-epoch training run against synthetic audio completed successfully, saved a real checkpoint, and that checkpoint was then successfully loaded and scored by the standalone `evaluate.py` script — closing the loop from raw waveform to trained model to exported per-file results.
 - The scaling/robustness upgrades (spectrogram caching, AMP, warmup+cosine LR, `--resume`, class-weighted loss) were verified together end-to-end: a synthetic-audio run with `--cache_dir`/`--class_weighted_loss` populated and reused the cache, `--resume` correctly picked up model/optimizer/scheduler/AMP-scaler state and continued past the interrupted epoch, and the resulting checkpoint loaded cleanly in `evaluate.py` under `weights_only=True`.
+- The ViT-CORE-ported training pipeline (EMA, balanced sampling, decoupled weight decay, label smoothing, gradient clipping, early stopping, TensorBoard/CSV logging, `atexit` exit-checkpointing) was run end-to-end against synthetic audio: a 3-epoch run produced correct `_latest`/`_best`/`_exit` checkpoints, a populated TensorBoard event file, and a CSV log matching the console output; re-running the identical command **auto-resumed** from epoch 4 with no `--resume` flag; and `evaluate.py` confirmed it loaded the checkpoint's **EMA** weights specifically, not the raw model. Fail-fast path validation was confirmed to list every bad path at once rather than failing on the first one.
 
 ## Roadmap
 
