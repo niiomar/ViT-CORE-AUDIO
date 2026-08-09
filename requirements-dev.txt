@@ -4,3 +4,7 @@ ruff>=0.16.0
 mypy>=1.10.0
 pre-commit>=3.5.0
 pip-audit>=2.7.0
+# Not a direct dependency of this project — pinned because CI's fresh runner
+# environment ships an older, vulnerable setuptools (PYSEC-2026-3447) that
+# nothing else in this file's install step would otherwise upgrade.
+setuptools>=83.0.0
