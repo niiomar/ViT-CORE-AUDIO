@@ -22,6 +22,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from timm.models import vit_small_patch16_224  # type: ignore[attr-defined]  # registered dynamically by timm
 
+
 class ViTCoreAudio(nn.Module):
     def __init__(self, num_classes: int = 2, pretrained: bool = True):
         super().__init__()
@@ -65,6 +66,7 @@ class ViTCoreAudio(nn.Module):
         isn't worth the latency. Trained jointly, usable independently."""
         f = self.encode(view)
         return self.classifier(f)
+
 
 def build_param_groups(model: nn.Module, weight_decay: float) -> list[dict]:
     """Split parameters into decay/no-decay groups (no weight decay on biases or 1-D norm params) —

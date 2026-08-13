@@ -79,7 +79,7 @@ def test_checkpoint_round_trip_restores_training_state(tmp_path):
 
     ckpt_path = tmp_path / "ckpt_roundtrip.pth"
     torch.save(ckpt, ckpt_path)
-    start_epoch, best_eer, ema_state = load_checkpoint(
+    loaded_epoch, best_eer, ema_state = load_checkpoint(
         str(ckpt_path),
         fresh_model,
         fresh_optimizer,
@@ -88,7 +88,10 @@ def test_checkpoint_round_trip_restores_training_state(tmp_path):
         device=torch.device("cpu"),
     )
 
-    assert start_epoch == 4
+    # load_checkpoint returns the raw stored epoch — whether the caller should
+    # resume AT it (mid-epoch) or AFTER it (+1, epoch fully completed) depends
+    # on last_batch.txt, which main() checks, not load_checkpoint itself.
+    assert loaded_epoch == 3
     assert best_eer == 0.10
     assert ema_state is not None
     for p_a, p_b in zip(model.parameters(), fresh_model.parameters(), strict=True):

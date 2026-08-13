@@ -426,12 +426,13 @@ def main() -> None:
             # not after it.
             start_epoch = loaded_epoch
             logger.info(
-                f"Resumed from {resume_path} mid-epoch {start_epoch} "
-                f"(best val EER so far {best_eer * 100:.2f}%)"
+                f"Resumed from {resume_path} mid-epoch {start_epoch} (best val EER so far {best_eer * 100:.2f}%)"
             )
         else:
             start_epoch = loaded_epoch + 1
-            logger.info(f"Resumed from {resume_path} at epoch {start_epoch} (best val EER so far {best_eer * 100:.2f}%)")
+            logger.info(
+                f"Resumed from {resume_path} at epoch {start_epoch} (best val EER so far {best_eer * 100:.2f}%)"
+            )
 
     ema = None
     if args.ema:
