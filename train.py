@@ -3,7 +3,16 @@ Training loop for ViT-CORE-Audio, replicating ViT-CORE's train.py pipeline
 end-to-end: seeded runs, class-balanced sampling, decoupled weight decay,
 label smoothing, gradient clipping, mixed precision, warmup+cosine LR with
 a floor, EMA of weights, early stopping, TensorBoard + CSV logging, and
-crash-safe checkpointing (latest/best/exit, all resumable).
+crash-safe checkpointing — now at BOTH granularities ViT-CORE's original
+script used: once per epoch (latest/best/exit) AND every 100 batches
+within an epoch, so an interruption never loses more than ~100 batches
+of progress, not a whole epoch.
+
+Mid-epoch checkpointing lives inside train_one_epoch and is self-contained:
+it checks for `last_batch.txt` itself at the start of every epoch and
+resumes from that batch if present, the same way main()'s epoch-level
+resume checks for `vitcore_audio_latest.pth` itself. The two resume
+layers are deliberately symmetric, not entangled.
 
 Differs from ViT-CORE only where the domain requires it: EER (not AUC) is
 the model-selection/early-stopping metric, per this project's own
@@ -37,6 +46,8 @@ from utils import seed_worker, set_seed, validate_paths
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+CHECKPOINT_EVERY_N_BATCHES = 100
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,6 +145,7 @@ def train_one_epoch(
     loader: DataLoader,
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     device: torch.device,
     scaler: torch.amp.GradScaler,
     use_amp: bool,
@@ -141,12 +153,50 @@ def train_one_epoch(
     ema: ModelEma | None,
     epoch: int,
     total_epochs: int,
+    *,
+    checkpoint_dir: str,
+    best_eer: float,
 ) -> dict[str, float]:
+    """
+    checkpoint_dir/best_eer are only needed so a mid-epoch checkpoint has
+    everything build_checkpoint() needs — this function never modifies
+    best_eer, only ever persists whatever main() currently believes it to
+    be, so a crash mid-epoch can't silently forget the best model seen
+    so far.
+
+    Resume is self-contained: checks for last_batch.txt itself at the
+    top, exactly the same pattern main() already uses for the epoch-level
+    vitcore_audio_latest.pth — the two resume layers don't need to know
+    about each other.
+    """
     model.train()
+
+    latest_path = os.path.join(checkpoint_dir, "vitcore_audio_latest.pth")
+    last_batch_path = os.path.join(checkpoint_dir, "last_batch.txt")
+    metrics_path = os.path.join(checkpoint_dir, "accumulated_metrics.pth")
+
+    resume_batch_idx = 0
     running = {"total": 0.0, "classification": 0.0, "consistency": 0.0}
+    seen = 0
+
+    if os.path.exists(last_batch_path):
+        with open(last_batch_path) as f:
+            resume_batch_idx = int(f.read())
+        if os.path.exists(metrics_path):
+            saved = torch.load(metrics_path, weights_only=True)
+            running = saved["running"]
+            seen = saved["seen"]
+        logger.info(f"[Resume] Epoch {epoch}: resuming from batch {resume_batch_idx}")
 
     pbar = tqdm(loader, desc=f"Epoch {epoch}/{total_epochs}")
-    for batch in pbar:
+    for batch_idx, batch in enumerate(pbar):
+        if batch_idx < resume_batch_idx:
+            # Already processed before the interruption — no cheap way to
+            # seek a shuffled/sampled loader to an arbitrary index, so we
+            # still iterate past these, just without any forward/backward
+            # pass, matching exactly how ViT-CORE's original skip logic works.
+            continue
+
         view1 = batch["view1"].to(device)
         view2 = batch["view2"].to(device)
         labels = batch["label"].to(device)
@@ -163,12 +213,27 @@ def train_one_epoch(
         if ema is not None:
             ema.update(model)
 
+        bsz = labels.size(0)
+        seen += bsz
         for k in running:
-            running[k] += losses[k].item() * labels.size(0)
-        pbar.set_postfix({"loss": f"{losses['total'].item():.4f}"})
+            running[k] += losses[k].item() * bsz
+        pbar.set_postfix({"loss": f"{running['total'] / seen:.4f}"})
 
-    n = len(loader.dataset)  # type: ignore[arg-type]  # torch's Dataset stub doesn't declare __len__, ours has one
-    return {k: v / n for k, v in running.items()}
+        if batch_idx % CHECKPOINT_EVERY_N_BATCHES == 0 and batch_idx != 0:
+            ckpt = build_checkpoint(model, optimizer, scheduler, scaler, epoch, float("nan"), best_eer, {}, ema)
+            torch.save(ckpt, latest_path)
+            with open(last_batch_path, "w") as f:
+                f.write(str(batch_idx))
+            torch.save({"running": running, "seen": seen}, metrics_path)
+
+    # Epoch completed fully — clear mid-epoch resume state so the NEXT
+    # epoch starts fresh rather than re-triggering a stale resume.
+    if os.path.exists(last_batch_path):
+        os.remove(last_batch_path)
+    if os.path.exists(metrics_path):
+        os.remove(metrics_path)
+
+    return {k: v / seen for k, v in running.items()}
 
 
 @torch.inference_mode()
@@ -259,6 +324,14 @@ def load_checkpoint(
     scaler: torch.amp.GradScaler,
     device: torch.device,
 ) -> tuple[int, float, dict | None]:
+    """
+    Returns the RAW epoch number stored in the checkpoint — deliberately
+    NOT epoch+1. Whether the caller should resume training AT this epoch
+    (a mid-epoch checkpoint, i.e. last_batch.txt exists alongside it) or
+    AFTER it (an epoch that fully completed) depends on state this
+    function doesn't have visibility into, so that decision belongs to
+    main(), not here.
+    """
     # weights_only=True: this checkpoint only holds tensors/numbers (state
     # dicts + scalars), so there's no need to unpickle arbitrary objects.
     ckpt = torch.load(path, map_location=device, weights_only=True)
@@ -266,7 +339,7 @@ def load_checkpoint(
     optimizer.load_state_dict(ckpt["optimizer"])
     scheduler.load_state_dict(ckpt["scheduler"])
     scaler.load_state_dict(ckpt["scaler"])
-    return ckpt["epoch"] + 1, ckpt["best_eer"], ckpt.get("ema")
+    return ckpt["epoch"], ckpt["best_eer"], ckpt.get("ema")
 
 
 def main() -> None:
@@ -340,13 +413,25 @@ def main() -> None:
     latest_ckpt_path = os.path.join(args.checkpoint_dir, "vitcore_audio_latest.pth")
     best_ckpt_path = os.path.join(args.checkpoint_dir, "vitcore_audio_best.pth")
     exit_ckpt_path = os.path.join(args.checkpoint_dir, "vitcore_audio_exit.pth")
+    last_batch_path = os.path.join(args.checkpoint_dir, "last_batch.txt")
     csv_path = os.path.join(args.checkpoint_dir, "vitcore_audio_losses.csv")
 
     resume_path = args.resume or (latest_ckpt_path if os.path.exists(latest_ckpt_path) else None)
     start_epoch, best_eer, ema_state = 1, float("inf"), None
     if resume_path:
-        start_epoch, best_eer, ema_state = load_checkpoint(resume_path, model, optimizer, scheduler, scaler, device)
-        logger.info(f"Resumed from {resume_path} at epoch {start_epoch} (best val EER so far {best_eer * 100:.2f}%)")
+        loaded_epoch, best_eer, ema_state = load_checkpoint(resume_path, model, optimizer, scheduler, scaler, device)
+        if os.path.exists(last_batch_path):
+            # A mid-epoch checkpoint — last_batch.txt is train_one_epoch's
+            # own marker that this epoch didn't finish. Resume WITHIN it,
+            # not after it.
+            start_epoch = loaded_epoch
+            logger.info(
+                f"Resumed from {resume_path} mid-epoch {start_epoch} "
+                f"(best val EER so far {best_eer * 100:.2f}%)"
+            )
+        else:
+            start_epoch = loaded_epoch + 1
+            logger.info(f"Resumed from {resume_path} at epoch {start_epoch} (best val EER so far {best_eer * 100:.2f}%)")
 
     ema = None
     if args.ema:
@@ -391,6 +476,7 @@ def main() -> None:
             train_loader,
             loss_fn,
             optimizer,
+            scheduler,
             device,
             scaler,
             use_amp,
@@ -398,6 +484,8 @@ def main() -> None:
             ema,
             epoch,
             args.epochs,
+            checkpoint_dir=args.checkpoint_dir,
+            best_eer=best_eer,
         )
         val_metrics = evaluate(eval_model, val_loader, device, use_amp)
         scheduler.step()
