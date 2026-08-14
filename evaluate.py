@@ -26,7 +26,6 @@ from metrics import compute_all
 from model import ViTCoreAudio
 from utils import validate_paths
 
-
 @torch.inference_mode()
 def run_evaluation(model: nn.Module, loader: DataLoader, device: torch.device) -> tuple[dict, list[tuple]]:
     model.eval()
@@ -51,7 +50,6 @@ def run_evaluation(model: nn.Module, loader: DataLoader, device: torch.device) -
     metrics = compute_all(all_labels, all_scores, all_preds)
     per_file_scores = list(zip(all_filenames, all_scores, all_labels, strict=True))
     return metrics, per_file_scores
-
 
 def main():
     parser = argparse.ArgumentParser()
