@@ -73,7 +73,7 @@ def main():
     # pretrained=False: the backbone's initial weights don't matter here,
     # they're immediately overwritten by the checkpoint's state_dict below —
     # skips a pointless ImageNet-weights download on every eval run.
-    model = ViTCoreAudio(num_classes=2, pretrained=False).to(device)
+    model = ViTCoreAudio(num_classes=2, pretrained=True).to(device)
     # weights_only=True: this checkpoint is a plain dict of tensors/numbers
     # (state dicts + scalars), so there's no need to unpickle arbitrary
     # objects — safer default against loading a malicious/corrupt checkpoint.
