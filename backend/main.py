@@ -106,7 +106,7 @@ def _run_analysis_sync(filename: str | None, content: bytes, explain: bool) -> d
         result = analyze_audio(tmp_path, generate_visuals=explain)
     except Exception as e:
         logger.error(f"Analysis pipeline error for {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Could not analyze {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not analyze {filename}: {e}") from e
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -140,7 +140,7 @@ async def analyze_media(file: UploadFile = File(...), explain: bool = Query(defa
         raise
     except Exception as e:
         logger.error(f"Analysis pipeline error: {e!s}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 # Batch files are processed concurrently, bounded by BATCH_CONCURRENCY so a
 # large batch doesn't spawn many simultaneous model forward passes and blow
