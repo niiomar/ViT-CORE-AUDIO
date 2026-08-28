@@ -60,7 +60,7 @@ _inference_lock = threading.Lock()
 # ALLOW_UNTRUSTED_CHECKPOINT.
 import numpy._core.multiarray
 
-torch.serialization.add_safe_globals([np._core.multiarray.scalar])
+torch.serialization.add_safe_globals([np._core.multiarray.scalar])  # type: ignore[attr-defined]
 
 # Matches datasets.py's eval-time (train=False) transform exactly: plain
 # ToTensor (float32, [0,1], CHW), no Normalize, no augmentation. Any
