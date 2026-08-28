@@ -116,7 +116,7 @@ def load_model():
                     "(the safe loader) and ALLOW_UNTRUSTED_CHECKPOINT is not set. Refusing to "
                     "fall back to full pickle deserialization of an unverified checkpoint. If "
                     "you trust this file's origin, set ALLOW_UNTRUSTED_CHECKPOINT=true."
-                )
+                ) from None
             logging.getLogger(__name__).warning(
                 "weights_only=True failed — falling back to weights_only=False "
                 "(ALLOW_UNTRUSTED_CHECKPOINT is set). Only safe with trusted checkpoints."

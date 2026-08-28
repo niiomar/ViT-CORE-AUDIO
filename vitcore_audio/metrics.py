@@ -23,9 +23,11 @@ from sklearn.metrics import roc_auc_score, roc_curve
 def accuracy(y_true: npt.ArrayLike, y_pred_labels: npt.ArrayLike) -> float:
     return float(np.mean(np.asarray(y_true) == np.asarray(y_pred_labels)))
 
+
 def auc(y_true: npt.ArrayLike, y_scores: npt.ArrayLike) -> float:
     """y_scores: probability/logit of the POSITIVE (spoof) class."""
     return float(roc_auc_score(y_true, y_scores))
+
 
 def eer(y_true: npt.ArrayLike, y_scores: npt.ArrayLike) -> tuple[float, float]:
     """
@@ -53,6 +55,7 @@ def eer(y_true: npt.ArrayLike, y_scores: npt.ArrayLike) -> tuple[float, float]:
     eer_threshold = thresholds[idx]
 
     return float(eer_value), float(eer_threshold)
+
 
 def compute_all(y_true: npt.ArrayLike, y_scores: npt.ArrayLike, y_pred_labels: npt.ArrayLike) -> dict:
     eer_value, eer_threshold = eer(y_true, y_scores)
