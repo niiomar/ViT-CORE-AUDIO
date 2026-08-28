@@ -3,7 +3,7 @@ pytest>=7.0.0
 ruff>=0.16.4
 mypy>=2.3.1
 pre-commit>=3.5.0
-pip-audit>=2.7.0
+pip-audit>=2.10.1
 # Not a direct dependency of this project — pinned because CI's fresh runner
 # environment ships an older, vulnerable setuptools (PYSEC-2026-3447) that
 # nothing else in this file's install step would otherwise upgrade.
