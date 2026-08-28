@@ -1,7 +1,7 @@
 -r requirements.txt
 pytest>=7.0.0
 ruff>=0.16.0
-mypy>=1.10.0
+mypy>=2.3.1
 pre-commit>=3.5.0
 pip-audit>=2.7.0
 # Not a direct dependency of this project — pinned because CI's fresh runner
