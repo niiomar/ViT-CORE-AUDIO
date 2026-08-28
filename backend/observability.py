@@ -21,14 +21,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 _request_id_ctx: ContextVar[str] = ContextVar("request_id", default="-")
 
-REQUEST_COUNT = Counter(
-    "vitcoreaudio_requests_total", "Total HTTP requests", ["method", "path", "status"]
-)
-REQUEST_LATENCY = Histogram(
-    "vitcoreaudio_request_latency_seconds", "Request latency in seconds", ["method", "path"]
-)
+REQUEST_COUNT = Counter("vitcoreaudio_requests_total", "Total HTTP requests", ["method", "path", "status"])
+REQUEST_LATENCY = Histogram("vitcoreaudio_request_latency_seconds", "Request latency in seconds", ["method", "path"])
 BATCH_SIZE = Histogram(
-    "vitcoreaudio_batch_size", "Number of files per /api/v1/analyze/batch request",
+    "vitcoreaudio_batch_size",
+    "Number of files per /api/v1/analyze/batch request",
     buckets=(1, 2, 5, 10, 20, 50),
 )
 
@@ -68,9 +65,7 @@ def configure_logging() -> None:
     if json_logs:
         handler.setFormatter(_JsonFormatter())
     else:
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] [req:%(request_id)s] %(message)s"
-        ))
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] [req:%(request_id)s] %(message)s"))
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
