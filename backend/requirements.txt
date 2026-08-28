@@ -21,4 +21,4 @@ prometheus-client>=0.20.0
 # vitcore_audio package install above — opencv is the one backend-only
 # addition (used only for colorizing the display images, never for
 # anything the model itself sees).
-opencv-python-headless>=4.8.0
+opencv-python-headless>=5.0.0.93
