@@ -1,0 +1,26 @@
+{
+  "name": "ViT-CORE-Audio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "vite": "^5.4.21",
+    "vitest": "^4.1.10"
+  },
+  "notes": {
+    "security": [
+      "npm audit flags vite/esbuild findings introduced transitively by vitest's own bundled vite@8 (used only for its dev-server/watch mode). CI runs `vitest run` (one-shot), not `vitest watch`/`--ui`, so that dev server never starts. The app's actual build still uses the pinned vite@5.4.21 above.",
+      "dompurify (moderate) is a transitive dependency of jspdf, used only for local PDF generation in the browser, not for rendering untrusted remote HTML."
+    ]
+  }
+}

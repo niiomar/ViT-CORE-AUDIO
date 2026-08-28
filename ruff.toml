@@ -16,7 +16,24 @@ select = [
 ]
 ignore = [
     "E501", # line length is enforced by the formatter, not worth double-flagging
+    # backend/main.py loads .env before importing auth.py/ratelimit.py/etc,
+    # which read their config from os.getenv() at MODULE IMPORT TIME —
+    # moving those imports above the load_dotenv() call wouldn't just be a
+    # style change, it would silently break config loading (API_KEY, rate
+    # limits, ...) whenever a .env file is actually used. backend/model.py
+    # has the same ordering requirement for registering the numpy safe
+    # global before torch.load() ever runs. Both are intentional.
+    "E402",
 ]
+
+# backend/ is FastAPI's dependency-injection pattern, which requires
+# File(...)/Form(...)/Query(...)/Depends(...)/Header(...) as literal
+# argument defaults — that's the framework's documented API, not the
+# mutable-default-argument bug B (flake8-bugbear, selected above) is meant
+# to catch everywhere else in the repo. Was backend/ruff.toml before the
+# two configs were unified into this one.
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Form", "fastapi.Query", "fastapi.Header"]
 
 [format]
 docstring-code-format = true

@@ -14,3 +14,14 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# backend/ + frontend/ (service)
+node_modules/
+backend/static/
+backend/weights/*
+!backend/weights/.gitkeep
+backend/data/*
+!backend/data/.gitkeep
+backend/*.db
+backend/.env
+frontend/.env

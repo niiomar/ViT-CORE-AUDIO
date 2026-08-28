@@ -1,0 +1,24 @@
+# The model architecture, checkpoint format, and audio preprocessing all
+# live in the vitcore_audio package at the repo root (shared with
+# train.py/evaluate.py) — installing it here is what lets backend/model.py
+# import ViTCoreAudio and load_dual_views directly instead of vendoring a
+# copy that could drift from what a checkpoint was actually trained
+# against. -e (editable) so local repo edits are picked up without a
+# reinstall; drop -e for the Dockerfile's production image (see Dockerfile).
+-e ..
+
+# Web & API Framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# Observability
+prometheus-client>=0.20.0
+
+# Image encoding for the mel/CQT view visuals returned to the frontend.
+# torch/torchvision/timm/librosa/soundfile/Pillow/numpy all come from the
+# vitcore_audio package install above — opencv is the one backend-only
+# addition (used only for colorizing the display images, never for
+# anything the model itself sees).
+opencv-python-headless>=4.8.0

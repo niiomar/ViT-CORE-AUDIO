@@ -10,6 +10,10 @@ Audio deepfake / voice-spoofing detection, built by porting ViT-CORE's dual-view
 
 > **Status:** architecture, training loop, and tooling are implemented and verified end-to-end against synthetic audio (see [Verified, Not Just Written](#verified-not-just-written)). No run against a real dataset has happened yet — see [Roadmap](#roadmap). No benchmark numbers are published here for that reason.
 
+## Running as a Service
+
+`backend/` and `frontend/` wrap this package as a FastAPI + Vite microservice, built to run alongside [VIT-CORE-FORENSICS](https://github.com/niiomar/VIT-CORE-FORENSICS) and [c2pa-veritas](https://github.com/niiomar/c2pa-veritas) as a third microservice for [veritas-nexus](https://github.com/niiomar/veritas-nexus). `backend/model.py` imports `ViTCoreAudio` and `load_dual_views` directly from this package rather than vendoring a copy — one source of truth for what a checkpoint was actually trained against. See [SERVICE.md](SERVICE.md) for the full setup, API reference, and Docker deployment instructions. It runs on untrained fallback weights (with a logged warning) until a real trained checkpoint is dropped into `backend/weights/`.
+
 ## Table of Contents
 
 - [Architecture](#architecture)
@@ -18,6 +22,7 @@ Audio deepfake / voice-spoofing detection, built by porting ViT-CORE's dual-view
 - [Data Format](#data-format)
 - [Quickstart](#quickstart)
 - [Project Structure](#project-structure)
+- [Running as a Service](#running-as-a-service)
 - [Development](#development)
 - [Verified, Not Just Written](#verified-not-just-written)
 - [Roadmap](#roadmap)
@@ -135,22 +140,30 @@ tensorboard --logdir checkpoints/tensorboard
 
 ```
 vit-core-audio/
-├── audio_preprocessing.py   # waveform -> (mel_view, cqt_view), both 224x224x3
-├── augmentations.py          # RaAug (mel), DFDC_Selim (cqt) — independently randomized
-├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, disk caching, corrupt-file retry
-├── model.py                   # ViTCoreAudio, ModelEma, build_param_groups — shared ViT-S/16 encoder, dual-view forward
-├── loss.py                     # classification CE (class-weighted, label-smoothed) + consistency MSE
-├── metrics.py                   # accuracy, AUC, and EER (Equal Error Rate)
-├── utils.py                      # set_seed, seed_worker, validate_paths — shared by train.py/evaluate.py
+├── vitcore_audio/                # the shared package — model + preprocessing, one source of truth
+│   ├── audio_preprocessing.py    # waveform -> (mel_view, cqt_view), both 224x224x3
+│   ├── augmentations.py          # RaAug (mel), DFDC_Selim (cqt) — independently randomized
+│   ├── datasets.py                # ASVspoof-protocol-format PyTorch Dataset, disk caching, corrupt-file retry
+│   ├── model.py                    # ViTCoreAudio, ModelEma, build_param_groups — shared ViT-S/16 encoder, dual-view forward
+│   ├── loss.py                      # classification CE (class-weighted, label-smoothed) + consistency MSE
+│   ├── metrics.py                    # accuracy, AUC, and EER (Equal Error Rate)
+│   └── utils.py                       # set_seed, seed_worker, validate_paths — shared by train.py/evaluate.py
 ├── train.py                       # training loop: AMP, EMA, warmup+cosine LR, early stopping, TensorBoard/CSV logging
-├── evaluate.py                    # standalone eval against any protocol file (cross-dataset testing)
-├── tests/                          # pytest suite covering the invariants below
-├── .github/workflows/ci.yml         # lint + type-check + test on every push/PR
-├── .pre-commit-config.yaml           # same checks, run locally on git commit
-├── ruff.toml                          # lint/format rules
-├── mypy.ini                            # type-check config
+├── evaluate.py                     # standalone eval against any protocol file (cross-dataset testing)
+├── pyproject.toml                   # makes vitcore_audio installable (pip install -e .) — used by backend/'s own requirements.txt
+├── tests/                             # pytest suite covering the invariants below (imports from vitcore_audio.*)
+├── backend/                            # FastAPI microservice — imports ViTCoreAudio/load_dual_views from vitcore_audio,
+│                                        #   never redefines them. See SERVICE.md for the full breakdown.
+├── frontend/                            # Vite + vanilla JS workspace UI, built into backend/static
+├── Dockerfile                            # two-stage build: frontend (Vite) -> backend runtime (installs vitcore_audio first)
+├── docker-compose.yml                     # host port 8003, alongside VIT-CORE-FORENSICS (8001) / c2pa-veritas (8002)
+├── .github/workflows/ci.yml                # lint + type-check + test on every push/PR (currently covers the training side only —
+│                                            #   backend/'s own test suite isn't wired into CI yet, see Roadmap)
+├── .pre-commit-config.yaml                   # same checks, run locally on git commit
+├── ruff.toml                                  # lint/format rules — one shared config for vitcore_audio/, train.py/evaluate.py, and backend/
+├── mypy.ini                                    # type-check config
 ├── requirements.txt
-└── requirements-dev.txt                 # requirements.txt + ruff/mypy/pytest/pre-commit
+└── requirements-dev.txt                         # requirements.txt + ruff/mypy/pytest/pre-commit
 ```
 
 ## Development
@@ -186,6 +199,8 @@ Every stage of this pipeline was run end-to-end against real synthetic audio bef
 
 ## Roadmap
 
+- [x] Backend + frontend serving scaffold (see [Running as a Service](#running-as-a-service)) — checkpoint-loading pattern in place, runs on untrained weights until a real checkpoint lands
+- [ ] Wire `backend/`'s own test suite into `.github/workflows/ci.yml` (currently covers the training side only)
 - [ ] Train against a real dataset — ASVspoof 2019 LA is the standard starting point
 - [ ] Cross-dataset generalization check on In-the-Wild, per the note in [Quickstart](#quickstart)
 - [ ] Publish benchmark EER/AUC numbers **only** once they come from a real held-out evaluation run, not a placeholder — per the same principle followed throughout the ViT-CORE-FORENSICS and C2PA-Veritas projects

@@ -1,0 +1,56 @@
+services:
+  vitcore-audio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_KEY: ${VITE_API_KEY:-changeme}
+    ports:
+      # Bound to localhost only, on 8003 — the next port after VIT-CORE
+      # (8001) and c2pa-veritas (8002) in veritas-nexus's worker.py
+      # microservice convention. Change to "0.0.0.0:8000:8000" only if
+      # placing behind a reverse proxy on the same host.
+      - "127.0.0.1:8003:8000"
+    env_file:
+      - backend/.env
+    environment:
+      # backend/.env is shared with bare-metal (uvicorn run from backend/),
+      # where relative paths like "weights/..." and "audit_log.db" are
+      # correct. In the container, WORKDIR is /app, so those same relative
+      # values would miss the volume mounts below entirely — override with
+      # the container-correct absolute paths. `environment:` takes
+      # precedence over `env_file:` in Compose, so these win regardless of
+      # what's in .env.
+      MODEL_WEIGHTS_PATH: /app/weights/vitcore_audio_best.pth
+      AUDIT_DB_PATH: /app/data/audit_log.db
+    volumes:
+      # Real weights/data live under backend/ (matches the README's
+      # documented path and the .env.example bare-metal defaults) — not a
+      # repo-root weights/ or data/ directory.
+      - ./backend/weights:/app/weights:ro
+      - ./backend/data:/app/data
+    restart: unless-stopped
+
+    # Prevents privilege escalation if the process is compromised.
+    security_opt:
+      - no-new-privileges:true
+
+    # Drops all Linux capabilities; add back only what's explicitly needed.
+    cap_drop:
+      - ALL
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Uncomment to enable GPU access (requires NVIDIA Container Toolkit).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
