@@ -8,13 +8,13 @@
 -e ..
 
 # Web & API Framework
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
+fastapi>=0.141.1
+uvicorn[standard]>=0.52.4
 python-multipart>=0.0.9
-python-dotenv>=1.0.0
+python-dotenv>=1.2.3
 
 # Observability
-prometheus-client>=0.20.0
+prometheus-client>=0.26.0
 
 # Image encoding for the mel/CQT view visuals returned to the frontend.
 # torch/torchvision/timm/librosa/soundfile/Pillow/numpy all come from the

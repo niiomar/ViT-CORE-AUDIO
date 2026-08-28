@@ -6,6 +6,7 @@ every 100 batches to --checkpoint_dir. If interrupted, rerun the same
 command — it resumes from the last saved batch, correctly, without
 re-loading any data for batches already completed (see ResumableSampler).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,11 +39,12 @@ class ResumableSampler(Sampler):
     skip_batches always reproduces the same remaining order, so a resume
     lines up exactly with what an uninterrupted run would have done.
     """
+
     def __init__(self, dataset_len, epoch, batch_size, skip_batches=0, seed=42):
         g = torch.Generator()
         g.manual_seed(seed + epoch)
         indices = torch.randperm(dataset_len, generator=g).tolist()
-        self.indices = indices[skip_batches * batch_size:]
+        self.indices = indices[skip_batches * batch_size :]
 
     def __iter__(self):
         return iter(self.indices)
@@ -52,8 +54,22 @@ class ResumableSampler(Sampler):
 
 
 def train_one_epoch(
-    model, dataset, loss_fn, optimizer, scheduler, device, epoch, total_epochs,
-    *, batch_size, num_workers, checkpoint_dir, resume_batch_idx, running, seen, best_eer,
+    model,
+    dataset,
+    loss_fn,
+    optimizer,
+    scheduler,
+    device,
+    epoch,
+    total_epochs,
+    *,
+    batch_size,
+    num_workers,
+    checkpoint_dir,
+    resume_batch_idx,
+    running,
+    seen,
+    best_eer,
 ):
     model.train()
 
@@ -65,8 +81,10 @@ def train_one_epoch(
     loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
 
     pbar = tqdm(
-        loader, desc=f"Epoch {epoch}/{total_epochs} [train]",
-        initial=resume_batch_idx, total=resume_batch_idx + len(loader),
+        loader,
+        desc=f"Epoch {epoch}/{total_epochs} [train]",
+        initial=resume_batch_idx,
+        total=resume_batch_idx + len(loader),
     )
     for i, batch in enumerate(pbar):
         batch_idx = resume_batch_idx + i
@@ -89,15 +107,18 @@ def train_one_epoch(
         pbar.set_postfix({"loss": f"{running['total'] / seen:.4f}"})
 
         if batch_idx % CHECKPOINT_EVERY_N_BATCHES == 0 and batch_idx != 0:
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "best_eer": best_eer,
-                "running": running,
-                "seen": seen,
-            }, latest_path)
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "best_eer": best_eer,
+                    "running": running,
+                    "seen": seen,
+                },
+                latest_path,
+            )
             with open(last_batch_path, "w") as f:
                 f.write(str(batch_idx))
             torch.save({"running": running, "seen": seen, "best_eer": best_eer}, metrics_path)
@@ -293,7 +314,9 @@ def main():
     if os.path.exists(last_batch_path):
         with open(last_batch_path) as f:
             resume_batch_idx = int(f.read())
-        print(f"[Resume] Resuming epoch {start_epoch} from batch {resume_batch_idx} (no data reloaded for completed batches)")
+        print(
+            f"[Resume] Resuming epoch {start_epoch} from batch {resume_batch_idx} (no data reloaded for completed batches)"
+        )
 
     if os.path.exists(metrics_path):
         print(f"[Resume] Loading running metrics from {metrics_path}")
@@ -303,15 +326,18 @@ def main():
         best_eer = metrics_checkpoint.get("best_eer", best_eer)
 
     def save_on_exit():
-        torch.save({
-            "epoch": start_epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scheduler_state_dict": scheduler.state_dict(),
-            "best_eer": best_eer,
-            "running": running,
-            "seen": seen,
-        }, exit_path)
+        torch.save(
+            {
+                "epoch": start_epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "best_eer": best_eer,
+                "running": running,
+                "seen": seen,
+            },
+            exit_path,
+        )
         print(f"[Exit Save] Model saved to {exit_path}")
 
     atexit.register(save_on_exit)
@@ -319,8 +345,17 @@ def main():
     if not os.path.exists(csv_path):
         with open(csv_path, mode="w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["epoch", "total_loss", "classification_loss", "consistency_loss",
-                              "val_accuracy", "val_auc", "val_eer_pct"])
+            writer.writerow(
+                [
+                    "epoch",
+                    "total_loss",
+                    "classification_loss",
+                    "consistency_loss",
+                    "val_accuracy",
+                    "val_auc",
+                    "val_eer_pct",
+                ]
+            )
 
     for epoch in range(start_epoch, args.epochs + 1):
         if resume_batch_idx == 0:
@@ -328,10 +363,21 @@ def main():
             seen = 0
 
         running, seen = train_one_epoch(
-            model, train_ds, loss_fn, optimizer, scheduler, device, epoch, args.epochs,
-            batch_size=args.batch_size, num_workers=args.num_workers,
-            checkpoint_dir=args.checkpoint_dir, resume_batch_idx=resume_batch_idx,
-            running=running, seen=seen, best_eer=best_eer,
+            model,
+            train_ds,
+            loss_fn,
+            optimizer,
+            scheduler,
+            device,
+            epoch,
+            args.epochs,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            checkpoint_dir=args.checkpoint_dir,
+            resume_batch_idx=resume_batch_idx,
+            running=running,
+            seen=seen,
+            best_eer=best_eer,
         )
         train_metrics = {k: v / seen for k, v in running.items()}
 
@@ -350,29 +396,43 @@ def main():
 
         with open(csv_path, mode="a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([epoch, train_metrics["total"], train_metrics["classification"],
-                              train_metrics["consistency"], val_metrics["accuracy"],
-                              val_metrics["auc"], val_metrics["eer_pct"]])
+            writer.writerow(
+                [
+                    epoch,
+                    train_metrics["total"],
+                    train_metrics["classification"],
+                    train_metrics["consistency"],
+                    val_metrics["accuracy"],
+                    val_metrics["auc"],
+                    val_metrics["eer_pct"],
+                ]
+            )
 
         if val_metrics["eer"] < best_eer:
             best_eer = val_metrics["eer"]
-            torch.save({
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "epoch": epoch,
-                "val_eer": best_eer,
-                "val_metrics": val_metrics,
-            }, best_path)
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "epoch": epoch,
+                    "val_eer": best_eer,
+                    "val_metrics": val_metrics,
+                },
+                best_path,
+            )
             print(f"  -> new best EER {best_eer * 100:.2f}%, saved to {best_path}")
 
-        torch.save({
-            "epoch": epoch + 1,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scheduler_state_dict": scheduler.state_dict(),
-            "best_eer": best_eer,
-        }, latest_path)
+        torch.save(
+            {
+                "epoch": epoch + 1,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "best_eer": best_eer,
+            },
+            latest_path,
+        )
         if os.path.exists(last_batch_path):
             os.remove(last_batch_path)
         if os.path.exists(metrics_path):
