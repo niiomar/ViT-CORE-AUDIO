@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 # soundfile (via librosa) natively reads wav/flac/ogg; mp3/m4a/aac/wma go
 # through librosa's audioread fallback, which needs ffmpeg on PATH in the
 # deployment environment — see README's Installation notes.
-SUPPORTED_EXTENSIONS = ('.wav', '.flac', '.mp3', '.m4a', '.ogg', '.aac', '.wma')
+SUPPORTED_EXTENSIONS = (".wav", ".flac", ".mp3", ".m4a", ".ogg", ".aac", ".wma")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
     get_model()
     yield
     logger.info("Shutting down.")
+
 
 app = FastAPI(title="ViT-CORE-Audio API", version=MODEL_VERSION, lifespan=lifespan)
 
@@ -106,7 +108,7 @@ def _run_analysis_sync(filename: str | None, content: bytes, explain: bool) -> d
         result = analyze_audio(tmp_path, generate_visuals=explain)
     except Exception as e:
         logger.error(f"Analysis pipeline error for {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Could not analyze {filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Could not analyze {filename}: {e}") from e
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -121,10 +123,12 @@ def _run_analysis_sync(filename: str | None, content: bytes, explain: bool) -> d
 
     return result
 
+
 async def _run_analysis(filename: str | None, content: bytes, explain: bool) -> dict:
     """Async wrapper: offloads the blocking analysis pipeline to a worker
     thread so it doesn't stall the event loop for other in-flight requests."""
     return await asyncio.to_thread(_run_analysis_sync, filename, content, explain)
+
 
 # Routes
 @app.post("/api/v1/analyze", dependencies=[Depends(verify_api_key), Depends(enforce_rate_limit)])
@@ -140,7 +144,8 @@ async def analyze_media(file: UploadFile = File(...), explain: bool = Query(defa
         raise
     except Exception as e:
         logger.error(f"Analysis pipeline error: {e!s}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 # Batch files are processed concurrently, bounded by BATCH_CONCURRENCY so a
 # large batch doesn't spawn many simultaneous model forward passes and blow
@@ -149,6 +154,7 @@ async def analyze_media(file: UploadFile = File(...), explain: bool = Query(defa
 # from overlapping I/O-bound work (tempfile staging, librosa decode, audit
 # writes) across files while inference queues behind the lock.
 BATCH_CONCURRENCY = int(os.getenv("BATCH_CONCURRENCY", "4"))
+
 
 @app.post("/api/v1/analyze/batch", dependencies=[Depends(verify_api_key), Depends(enforce_rate_limit)])
 async def analyze_batch(files: list[UploadFile] = File(...), explain: bool = Query(default=False)):
@@ -193,10 +199,12 @@ async def analyze_batch(files: list[UploadFile] = File(...), explain: bool = Que
     }
     return {"summary": summary, "results": results}
 
+
 @app.get("/api/v1/history", dependencies=[Depends(verify_api_key)])
 async def history(limit: int = Query(default=50, le=200)):
     """Return recent audit log entries (chain-of-custody view)."""
     return {"entries": audit.get_recent(limit)}
+
 
 @app.get("/api/v1/history/{file_hash}", dependencies=[Depends(verify_api_key)])
 async def history_by_hash(file_hash: str):
@@ -205,6 +213,7 @@ async def history_by_hash(file_hash: str):
     if not entries:
         raise HTTPException(status_code=404, detail="No records for this file hash.")
     return {"entries": entries}
+
 
 @app.get("/health")
 async def health():
@@ -219,6 +228,7 @@ async def health():
         raise HTTPException(status_code=503, detail=body)
     return body
 
+
 @app.get("/metrics")
 async def metrics():
     """Prometheus scrape endpoint. Deliberately unauthenticated (like
@@ -227,6 +237,7 @@ async def metrics():
     same as you would for any other internal metrics endpoint."""
     body, content_type = metrics_response()
     return Response(content=body, media_type=content_type)
+
 
 # Serves the Vite production build (npm run build outputs here) so the
 # whole app is a single FastAPI process in production.
@@ -243,7 +254,4 @@ if _static.exists():
     async def serve_frontend():
         return FileResponse(str(_static / "index.html"))
 else:
-    logger.warning(
-        f"Frontend build directory not found at {_static}. "
-        "Check your Vite configuration."
-    )
+    logger.warning(f"Frontend build directory not found at {_static}. Check your Vite configuration.")
