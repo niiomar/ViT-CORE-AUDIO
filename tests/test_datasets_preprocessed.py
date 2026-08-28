@@ -1,4 +1,3 @@
-
 from tests.conftest import write_sine_wav
 from vitcore_audio.datasets import LABEL_MAP, AudioSpoofDataset
 from vitcore_audio.datasets_preprocessed import PreprocessedAudioSpoofDataset
@@ -16,7 +15,9 @@ def _make_protocol_and_populated_cache(tmp_path):
     protocol_path.write_text("SPK1 sample1 - SYS1 bonafide\nSPK2 sample2 - SYS2 spoof\n")
 
     cache_dir = tmp_path / "cache"
-    populate_ds = AudioSpoofDataset(str(protocol_path), str(audio_dir), train=False, file_ext=".wav", cache_dir=str(cache_dir))
+    populate_ds = AudioSpoofDataset(
+        str(protocol_path), str(audio_dir), train=False, file_ext=".wav", cache_dir=str(cache_dir)
+    )
     for i in range(len(populate_ds)):
         populate_ds[i]  # triggers _load_views -> writes the .npz cache as a side effect
 

@@ -52,6 +52,7 @@ def run_evaluation(model: nn.Module, loader: DataLoader, device: torch.device) -
     per_file_scores = list(zip(all_filenames, all_scores, all_labels, strict=True))
     return metrics, per_file_scores
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)

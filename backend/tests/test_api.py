@@ -33,6 +33,7 @@ HEADERS = {"X-API-KEY": "test-api-key"}
 
 def _synthetic_wav_bytes(seconds: float = 4.0, sr: int = 16000, freq: float = 220.0) -> bytes:
     import io
+
     t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
     wav = 0.3 * np.sin(2 * np.pi * freq * t).astype(np.float32)
     buf = io.BytesIO()
