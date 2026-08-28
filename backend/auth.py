@@ -28,6 +28,7 @@ if not API_KEY:
         "Set API_KEY in your environment for any non-local deployment."
     )
 
+
 async def verify_api_key(x_api_key: str | None = Header(default=None, alias="X-API-KEY")):
     """
     FastAPI dependency. Raises 401 if the key is missing/incorrect.
