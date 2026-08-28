@@ -1,6 +1,7 @@
 import numpy as np
 
-from audio_preprocessing import (
+from tests.conftest import write_sine_wav
+from vitcore_audio.audio_preprocessing import (
     DURATION_SECONDS,
     SAMPLE_RATE,
     _load_and_fix_length,
@@ -8,7 +9,6 @@ from audio_preprocessing import (
     waveform_to_cqt_view,
     waveform_to_mel_view,
 )
-from tests.conftest import write_sine_wav
 
 
 def test_dual_views_shape_dtype_and_range(synthetic_wav_path):

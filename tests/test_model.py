@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from model import ModelEma, ViTCoreAudio, build_param_groups
+from vitcore_audio.model import ModelEma, ViTCoreAudio, build_param_groups
 
 
 def _make_model() -> ViTCoreAudio:

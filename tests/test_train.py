@@ -1,6 +1,5 @@
 import torch
 
-from model import ModelEma, ViTCoreAudio
 from train import (
     build_checkpoint,
     build_scheduler,
@@ -8,6 +7,7 @@ from train import (
     load_checkpoint,
     should_stop_early,
 )
+from vitcore_audio.model import ModelEma, ViTCoreAudio
 
 
 def test_should_stop_early():

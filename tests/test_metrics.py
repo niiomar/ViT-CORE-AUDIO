@@ -1,6 +1,6 @@
 import numpy as np
 
-from metrics import accuracy, auc, compute_all, eer
+from vitcore_audio.metrics import accuracy, auc, compute_all, eer
 
 
 def test_eer_perfectly_separable_scores_is_zero():

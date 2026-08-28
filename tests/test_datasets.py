@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from datasets import LABEL_MAP, AudioSpoofDataset
 from tests.conftest import write_sine_wav
+from vitcore_audio.datasets import LABEL_MAP, AudioSpoofDataset
 
 
 def _make_protocol_and_audio(tmp_path):

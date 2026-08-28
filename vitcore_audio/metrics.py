@@ -19,6 +19,7 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.metrics import roc_auc_score, roc_curve
 
+
 def accuracy(y_true: npt.ArrayLike, y_pred_labels: npt.ArrayLike) -> float:
     return float(np.mean(np.asarray(y_true) == np.asarray(y_pred_labels)))
 

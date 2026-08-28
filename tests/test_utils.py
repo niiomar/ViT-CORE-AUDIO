@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from utils import seed_worker, set_seed, validate_paths
+from vitcore_audio.utils import seed_worker, set_seed, validate_paths
 
 
 def test_set_seed_makes_random_sequences_reproducible():

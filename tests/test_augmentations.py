@@ -1,6 +1,6 @@
 import numpy as np
 
-from augmentations import DFDC_Selim, RaAug
+from vitcore_audio.augmentations import DFDC_Selim, RaAug
 
 
 def _random_spec() -> np.ndarray:

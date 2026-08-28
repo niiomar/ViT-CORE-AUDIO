@@ -1,7 +1,7 @@
 import torch
 
-from loss import ViTCoreAudioLoss
-from model import ViTCoreAudio
+from vitcore_audio.loss import ViTCoreAudioLoss
+from vitcore_audio.model import ViTCoreAudio
 
 
 def test_backward_produces_flowing_gradients():

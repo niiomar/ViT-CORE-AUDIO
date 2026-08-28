@@ -17,11 +17,11 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Sampler
 from tqdm.auto import tqdm
+from vitcore_audio.datasets_preprocessed import PreprocessedAudioSpoofDataset
 
-from datasets_preprocessed import PreprocessedAudioSpoofDataset
-from loss import ViTCoreAudioLoss
-from metrics import compute_all
-from model import ViTCoreAudio
+from vitcore_audio.loss import ViTCoreAudioLoss
+from vitcore_audio.metrics import compute_all
+from vitcore_audio.model import ViTCoreAudio
 
 CHECKPOINT_EVERY_N_BATCHES = 100
 
@@ -146,7 +146,7 @@ def main():
         train_ds = PreprocessedAudioSpoofDataset(args.train_protocol, args.train_audio_dir, train=True)
         val_ds = PreprocessedAudioSpoofDataset(args.val_protocol, args.val_audio_dir, train=False)
     else:
-        from datasets import AudioSpoofDataset
+        from vitcore_audio.datasets import AudioSpoofDataset
         train_ds = AudioSpoofDataset(args.train_protocol, args.train_audio_dir, train=True, file_ext=args.file_ext)
         val_ds = AudioSpoofDataset(args.val_protocol, args.val_audio_dir, train=False, file_ext=args.file_ext)
 
@@ -181,7 +181,7 @@ def main():
         best_eer = checkpoint.get("best_eer", float("inf"))
 
     if os.path.exists(last_batch_path):
-        with open(last_batch_path, "r") as f:
+        with open(last_batch_path) as f:
             resume_batch_idx = int(f.read())
         print(f"[Resume] Resuming epoch {start_epoch} from batch {resume_batch_idx} (no data reloaded for completed batches)")
 

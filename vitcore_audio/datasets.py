@@ -22,8 +22,8 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from audio_preprocessing import load_dual_views
-from augmentations import DFDC_Selim, RaAug
+from .audio_preprocessing import load_dual_views
+from .augmentations import DFDC_Selim, RaAug
 
 logger = logging.getLogger(__name__)
 

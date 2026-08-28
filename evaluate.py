@@ -21,10 +21,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from datasets import AudioSpoofDataset
-from metrics import compute_all
-from model import ViTCoreAudio
-from utils import validate_paths
+from vitcore_audio.datasets import AudioSpoofDataset
+from vitcore_audio.metrics import compute_all
+from vitcore_audio.model import ViTCoreAudio
+from vitcore_audio.utils import validate_paths
+
 
 @torch.inference_mode()
 def run_evaluation(model: nn.Module, loader: DataLoader, device: torch.device) -> tuple[dict, list[tuple]]:
