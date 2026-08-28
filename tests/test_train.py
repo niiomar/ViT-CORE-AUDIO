@@ -48,7 +48,7 @@ class _StubEntries:
 def test_compute_class_weights_upweights_the_minority_class():
     dataset = _StubEntries([0, 1, 1, 1])  # 1 bonafide, 3 spoof
     # _StubEntries duck-types AudioSpoofDataset (compute_class_weights only reads .entries).
-    weights = compute_class_weights(dataset, device=torch.device("cpu"))  # type: ignore[arg-type]
+    weights = compute_class_weights(dataset, device=torch.device("cpu"))
     assert weights[0] > weights[1]  # bonafide (minority) gets the larger weight
 
 

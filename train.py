@@ -13,15 +13,18 @@ import atexit
 import csv
 import os
 
+import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Sampler
 from tqdm.auto import tqdm
-from vitcore_audio.datasets_preprocessed import PreprocessedAudioSpoofDataset
 
+from vitcore_audio.datasets import AudioSpoofDataset
+from vitcore_audio.datasets_preprocessed import PreprocessedAudioSpoofDataset
 from vitcore_audio.loss import ViTCoreAudioLoss
 from vitcore_audio.metrics import compute_all
-from vitcore_audio.model import ViTCoreAudio
+from vitcore_audio.model import ModelEma, ViTCoreAudio
 
 CHECKPOINT_EVERY_N_BATCHES = 100
 
@@ -105,7 +108,9 @@ def train_one_epoch(
 @torch.inference_mode()
 def evaluate(model, loader, device, epoch, total_epochs):
     model.eval()
-    all_labels, all_scores, all_preds = [], [], []
+    all_labels: list[int] = []
+    all_scores: list[float] = []
+    all_preds: list[int] = []
 
     for batch in tqdm(loader, desc=f"Epoch {epoch}/{total_epochs} [val]"):
         view1 = batch["view1"].to(device)
@@ -121,6 +126,110 @@ def evaluate(model, loader, device, epoch, total_epochs):
         all_preds.extend(preds.cpu().numpy())
 
     return compute_all(all_labels, all_scores, all_preds)
+
+
+# --- Restored utility functions ---
+#
+# tests/test_train.py imports build_checkpoint, build_scheduler,
+# compute_class_weights, load_checkpoint, and should_stop_early — none of
+# which existed anywhere in this file (a pre-existing gap predating the
+# backend/frontend service work, found while unifying the two). Recovered
+# from this file's own git history (the commit immediately before "Refactor
+# ViT-CORE-Audio training loop and checkpointing", which dropped them along
+# with EMA/AMP/warmup-LR/class-weighted sampling), where their contracts
+# already matched tests/test_train.py's current expectations exactly.
+#
+# Deliberately NOT wired into main()/train_one_epoch() below, which use a
+# different, simpler inline checkpoint dict format (epoch/model_state_dict/
+# optimizer_state_dict/scheduler_state_dict/best_eer/running/seen, no EMA,
+# no AMP scaler) introduced by that same refactor commit. Rewiring main() to
+# use these would mean reintroducing EMA/AMP/warmup-LR training behavior
+# your own refactor removed — a real behavior change, not a bug fix, and
+# not something to decide unilaterally. These are restored as working,
+# tested, importable utilities; whether main() should use them is a
+# separate call.
+
+
+def build_scheduler(
+    optimizer: torch.optim.Optimizer, epochs: int, warmup_epochs: int, min_lr: float
+) -> torch.optim.lr_scheduler.LRScheduler:
+    """Linear warmup (avoids destabilizing the pretrained ViT backbone in the first few
+    steps) followed by cosine annealing down to a floor of `min_lr` for the remainder."""
+    warmup_epochs = max(0, min(warmup_epochs, epochs - 1))
+    if warmup_epochs == 0:
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=min_lr)
+
+    warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_epochs)
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs, eta_min=min_lr)
+    return torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs])
+
+
+def compute_class_weights(dataset, device: torch.device) -> torch.Tensor:
+    """Inverse-frequency class weights (the standard 'balanced' formula:
+    N / (num_classes * count_i)) — ASVspoof-style protocols are typically
+    dominated by spoof samples, so unweighted CE biases toward predicting
+    the majority class."""
+    labels = np.array([label for _, label in dataset.entries])
+    counts = np.bincount(labels, minlength=2).astype(np.float64)
+    weights = counts.sum() / (len(counts) * np.clip(counts, 1, None))
+    return torch.tensor(weights, dtype=torch.float32, device=device)
+
+
+def should_stop_early(epochs_since_improvement: int, patience: int) -> bool:
+    """True once `patience` epochs have passed with no val-EER improvement. patience <= 0 disables."""
+    return patience > 0 and epochs_since_improvement >= patience
+
+
+def build_checkpoint(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    scaler: torch.amp.GradScaler,
+    epoch: int,
+    val_eer: float,
+    best_eer: float,
+    val_metrics: dict,
+    ema: ModelEma | None,
+) -> dict:
+    ckpt = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict(),
+        "epoch": epoch,
+        "val_eer": val_eer,
+        "best_eer": best_eer,
+        "val_metrics": val_metrics,
+    }
+    if ema is not None:
+        ckpt["ema"] = ema.state_dict()
+    return ckpt
+
+
+def load_checkpoint(
+    path: str,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    scaler: torch.amp.GradScaler,
+    device: torch.device,
+) -> tuple[int, float, dict | None]:
+    """
+    Returns the RAW epoch number stored in the checkpoint — deliberately
+    NOT epoch+1. Whether the caller should resume training AT this epoch
+    (a mid-epoch checkpoint, i.e. last_batch.txt exists alongside it) or
+    AFTER it (an epoch that fully completed) depends on state this
+    function doesn't have visibility into, so that decision belongs to
+    main(), not here.
+    """
+    # weights_only=True: this checkpoint only holds tensors/numbers (state
+    # dicts + scalars), so there's no need to unpickle arbitrary objects.
+    ckpt = torch.load(path, map_location=device, weights_only=True)
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    scheduler.load_state_dict(ckpt["scheduler"])
+    scaler.load_state_dict(ckpt["scaler"])
+    return ckpt["epoch"], ckpt["best_eer"], ckpt.get("ema")
 
 
 def main():
@@ -142,11 +251,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
+    train_ds: AudioSpoofDataset
+    val_ds: AudioSpoofDataset
     if args.preprocessed:
         train_ds = PreprocessedAudioSpoofDataset(args.train_protocol, args.train_audio_dir, train=True)
         val_ds = PreprocessedAudioSpoofDataset(args.val_protocol, args.val_audio_dir, train=False)
     else:
-        from vitcore_audio.datasets import AudioSpoofDataset
         train_ds = AudioSpoofDataset(args.train_protocol, args.train_audio_dir, train=True, file_ext=args.file_ext)
         val_ds = AudioSpoofDataset(args.val_protocol, args.val_audio_dir, train=False, file_ext=args.file_ext)
 
