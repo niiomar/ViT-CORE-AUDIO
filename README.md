@@ -157,8 +157,8 @@ vit-core-audio/
 ├── frontend/                            # Vite + vanilla JS workspace UI, built into backend/static
 ├── Dockerfile                            # two-stage build: frontend (Vite) -> backend runtime (installs vitcore_audio first)
 ├── docker-compose.yml                     # host port 8003, alongside VIT-CORE-FORENSICS (8001) / c2pa-veritas (8002)
-├── .github/workflows/ci.yml                # lint + type-check + test on every push/PR (currently covers the training side only —
-│                                            #   backend/'s own test suite isn't wired into CI yet, see Roadmap)
+├── .github/workflows/ci.yml                # lint + type-check + test on every push/PR — installs both requirements-dev.txt
+│                                            #   files, so this covers backend/'s test suite too, not just the training side
 ├── .pre-commit-config.yaml                   # same checks, run locally on git commit
 ├── ruff.toml                                  # lint/format rules — one shared config for vitcore_audio/, train.py/evaluate.py, and backend/
 ├── mypy.ini                                    # type-check config
@@ -178,7 +178,7 @@ pytest                  # tests
 pip-audit               # dependency vulnerability scan
 ```
 
-`pre-commit install` wires `ruff check`, `ruff format`, and `mypy` (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit. `pytest` and `pip-audit` aren't pre-commit hooks (slower / better suited to CI than every commit) — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all five checks, including those two, on every push/PR to `main`. [Dependabot](.github/dependabot.yml) complements `pip-audit` by opening PRs for outdated `pip` and GitHub Actions dependencies on a weekly schedule.
+`pre-commit install` wires `ruff check`, `ruff format`, and `mypy` (plus basic hygiene checks — trailing whitespace, merge conflict markers, etc.) to run automatically on `git commit`. `mypy`'s pre-commit hook runs against this project's own environment rather than an isolated one (it needs `torch`/`librosa`/`timm` installed to resolve types), so `requirements-dev.txt` must be installed in whatever Python is active when you commit. `pytest` and `pip-audit` aren't pre-commit hooks (slower / better suited to CI than every commit) — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) installs both `requirements-dev.txt` and `backend/requirements-dev.txt`, then runs all five checks — including `pytest`, which picks up `tests/` and `backend/tests/` together in one run — on every push/PR to `main`.
 
 The suite in `tests/` codifies the invariants listed below as regression tests — e.g. the Nyquist-safe CQT config, unit-norm embeddings, non-no-op augmentations, gradient flow through the loss, and the `eer()` known-value checks — rather than relying only on the one-off manual verification runs described there.
 
@@ -200,7 +200,7 @@ Every stage of this pipeline was run end-to-end against real synthetic audio bef
 ## Roadmap
 
 - [x] Backend + frontend serving scaffold (see [Running as a Service](#running-as-a-service)) — checkpoint-loading pattern in place, runs on untrained weights until a real checkpoint lands
-- [ ] Wire `backend/`'s own test suite into `.github/workflows/ci.yml` (currently covers the training side only)
+- [x] Wire `backend/`'s own test suite into `.github/workflows/ci.yml`
 - [ ] Train against a real dataset — ASVspoof 2019 LA is the standard starting point
 - [ ] Cross-dataset generalization check on In-the-Wild, per the note in [Quickstart](#quickstart)
 - [ ] Publish benchmark EER/AUC numbers **only** once they come from a real held-out evaluation run, not a placeholder — per the same principle followed throughout the ViT-CORE-FORENSICS and C2PA-Veritas projects
